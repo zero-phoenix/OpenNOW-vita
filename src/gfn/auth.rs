@@ -659,12 +659,52 @@ pub async fn fetch_membership_tier(
         .await
         .context("subscription response was not valid JSON")?;
 
-    let tier = payload
-        .get("membershipTier")
-        .and_then(|t| t.as_str())
+    let find_tier = |val: &serde_json::Value| -> Option<String> {
+        if let Some(tier) = val.get("membershipTier").and_then(|t| t.as_str()) {
+            return Some(tier.to_owned());
+        }
+        if let Some(arr) = val.as_array() {
+            for item in arr {
+                if let Some(tier) = item.get("membershipTier").and_then(|t| t.as_str()) {
+                    return Some(tier.to_owned());
+                }
+            }
+        }
+        if let Some(subs) = val.get("subscriptions").and_then(|s| s.as_array()) {
+            for item in subs {
+                if let Some(tier) = item.get("membershipTier").and_then(|t| t.as_str()) {
+                    return Some(tier.to_owned());
+                }
+            }
+        }
+        None
+    };
+
+    let tier = find_tier(&payload)
         .context("membershipTier field missing in subscription response")?;
 
-    Ok(tier.to_owned())
+    Ok(tier)
+}
+
+pub fn tier_max_duration_secs(tier: Option<&str>) -> u32 {
+    let Some(tier_str) = tier else {
+        return 60 * 60;
+    };
+    let t = tier_str.to_ascii_uppercase();
+    if t.contains("ULTIMATE") || t.contains("RTX") || t.contains("4080") || t.contains("3080") {
+        8 * 60 * 60
+    } else if t.contains("PRIORITY")
+        || t.contains("PREMIUM")
+        || t.contains("PERFORMANCE")
+        || t.contains("FOUNDER")
+        || t.contains("STANDARD")
+        || t.contains("DAY_PASS")
+        || t.contains("PASS")
+    {
+        6 * 60 * 60
+    } else {
+        60 * 60
+    }
 }
 
 const DEVICE_ID_PATH: &str = "ux0:data/opennow-vita/device-id.txt";
