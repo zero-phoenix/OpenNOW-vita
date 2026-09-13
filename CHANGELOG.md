@@ -5,6 +5,23 @@ All notable changes to OpenNOW Vita are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-09-13
+
+### Added
+
+- **"Force direct NVIDIA login" setting** (Settings → Account, on by default): the device-code
+  login flow used to always call `providers::discover_providers()`, an unauthenticated request
+  to `pcs.geforcenow.com/v1/serviceUrls` that returns a login provider chosen by NVIDIA's
+  backend from server-side network/ISP signals — not from the client's actual location or VPN
+  exit node. For accounts whose traffic gets classified that way, this could silently hand the
+  login to a regional whitelabel partner (e.g. "GeForce NOW powered by Digevo", NVIDIA's
+  official Peru-market reseller) instead of NVIDIA's own login, even while tunnelling through a
+  US VPN — surprising for a US-registered Ultimate + persistent-storage account with no
+  intention of using a regional partner. With the new preference on, the client skips
+  `discover_providers()` entirely and always authenticates against NVIDIA's own default idp and
+  streaming endpoint (`GfnProvider::default()`), so the sign-in screen no longer depends on
+  what the discovery endpoint feels like returning that day.
+
 ## [0.4.0] - 2026-09-13
 
 ### Added
@@ -194,6 +211,7 @@ First public release.
 
 - Analog triggers and L3/R3 had no rear-touchpad mapping. *(Addressed in 0.3.0.)*
 
+[0.4.1]: https://github.com/zero-phoenix/OpenNOW-vita/releases/tag/v0.4.1
 [0.4.0]: https://github.com/zero-phoenix/OpenNOW-vita/releases/tag/v0.4.0
 [0.3.1]: https://github.com/OpenCloudGaming/OpenNOW-vita/releases/tag/v0.3.1
 [0.3.0]: https://github.com/OpenCloudGaming/OpenNOW-vita/releases/tag/v0.3.0
