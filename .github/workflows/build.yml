@@ -1,0 +1,113 @@
+name: Build VPK
+
+# Builds the real PS Vita VPK on every push/PR against master, plus on version tags (where the
+# `release` job below then publishes it). Runs inside the official `vitasdk/vitasdk` container,
+# which ships a genuine `arm-vita-eabi-*` toolchain and precompiled Vita stub libraries - the same
+# one used to manually validate this project's builds before this workflow existed.
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+    branches: [master]
+  workflow_dispatch: {}
+
+env:
+  CARGO_TERM_COLOR: always
+  VITASDK: /usr/local/vitasdk
+
+jobs:
+  build:
+    name: Build VPK
+    runs-on: ubuntu-latest
+    container:
+      image: vitasdk/vitasdk:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache cargo registry and git checkouts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-${{ runner.os }}-
+
+      - name: Cache build output
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: cargo-target-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-target-${{ runner.os }}-
+
+      - name: Install Rust nightly (host toolchain used to cross-compile for the Vita)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Add rust-src component
+        # armv7-sony-vita-newlibeabihf is a Tier 3 target with no prebuilt std - cargo-vita
+        # builds libstd from source (`-Z build-std`) using this component.
+        run: rustup component add rust-src --toolchain nightly
+
+      - name: Install cargo-vita
+        run: cargo +nightly install cargo-vita
+
+      - name: Build VPK
+        run: |
+          export PATH="$VITASDK/bin:$HOME/.cargo/bin:$PATH"
+          make vpk
+
+      - name: Upload VPK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opennow-vita-vpk
+          path: target/armv7-sony-vita-newlibeabihf/release/opennow-vita.vpk
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download VPK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: opennow-vita-vpk
+          path: dist
+
+      - name: Extract changelog section for this version
+        id: changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "[" ver "]") > 0) { found = 1; next }
+              next
+            }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "No CHANGELOG.md entry found for version $version - falling back to a generic note." >&2
+            echo "See CHANGELOG.md for details on this release." > release_notes.md
+          fi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: OpenNOW Vita ${{ github.ref_name }}
+          body_path: release_notes.md
+          files: dist/opennow-vita.vpk
+          draft: false
+          prerelease: false

@@ -5,18 +5,55 @@ All notable changes to OpenNOW Vita are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-09-13
+
+### Added
+
+- **PC-Touch Overlay Mod**: use the Vita as a keyboard+mouse for the remote host's desktop
+  (e.g. controlling Windows from inside a GeForce NOW Ultimate Install-to-Play session), gated
+  behind a new "PC overlay" toggle in Settings so it does not interfere with normal controller
+  play:
+  - The rear touch panel (device id 2) drives the host mouse cursor as a relative-delta
+    trackpad, with a configurable DPI/sensitivity multiplier. NVST's input channel has no
+    absolute-position packet, so this is a deliberate trackpad-style relative mapping, not a
+    1:1 touch-to-pixel map - documented in `src/input.rs` and `src/gfn/input_protocol.rs`.
+  - The front screen exposes seven overlay zones, drawn with egui as semi-transparent
+    labelled rectangles at a configurable opacity: Esc (top-left), open native settings
+    (top-right), a DPI slider (left edge), left-click and right-click (bottom corners), a
+    scroll slider and Enter (right edge). These zones are mutually exclusive with the
+    existing `FrontStickZones` L3/R3 corners - when the PC overlay is on, the bottom corners
+    are mouse clicks, not sticks; when it's off, `FrontStickZones` behaves exactly as before.
+  - Added `INPUT_MOUSE_WHEEL` to the NVST input-channel protocol (`src/gfn/input_protocol.rs`)
+    to support scroll, ported from the sibling OpenNOW/OpenNOW-Switch clients' wire format.
+  - Physical-button macros, active only while the overlay is on: L trigger (held) halves the
+    mouse sensitivity ("sniper mode"), SELECT toggles the on-screen keyboard, D-Pad Up sends
+    Win+D, D-Pad Down sends Ctrl+Alt+Del. `SendChord` was extended with a `win: bool` field,
+    pairing `KEY_LEFT_WIN` down/up around the chorded key.
+  - All of the above (overlay on/off, opacity, DPI sensitivity) are persistent preferences in
+    `stream_prefs.rs`, editable from the Settings menu, in all four shipped locales.
+
+### Fixed
+
+- Install-to-Play titles owned on a linked store (e.g. Steam) but also present as an
+  Install-to-Play catalog variant could fail to appear or launch correctly: variant selection
+  in `catalog.rs` now prefers the owned/`gfn.library.selected` variant instead of blindly
+  picking the first numeric-id variant, and `accountLinked` in the CloudMatch session request
+  now reflects real per-game ownership instead of being hardcoded `true`.
+- "Session limit reached for this device" could fire even right after successfully launching
+  the same game from a PC, because the pre-launch zombie-session cleanup only checked the
+  pinned zone plus the global entrypoint - a session left open on a *third* zone from an
+  earlier run was invisible to cleanup and exhausted every retry. Cleanup now also checks
+  every zone already known from region discovery (`build_cleanup_bases()` in `cloudmatch.rs`).
 
 ### Changed
 
 - Streaming protocol aligned with OpenNOW desktop: CloudMatch `mediaConnectionInfo` is injected as a remote host ICE candidate, inbound TCP ICE is dropped, and signaling `peerRole` is 1. Keys and mouse stay on the reliable input channel; gamepad does too (the partial-reliable 0x26 path left Vita buttons dead — GFN was not consuming it). Decode fallback is 960x544. A video-stall watchdog sends PLI at 4s and fails the session at 8s. Overlay reports kbps, loss, and RTT. NVST advertises 8-bit depth; CloudMatch `bitDepth` stays `0` (8-bit SDR — NVIDIA's enum, not the bit count). Mid-session bitrate changes send REMB and a fresh NVST blob instead of rewriting a local SDP string. Answer SDP advertises nack/REMB so the rtc interceptor can request retransmits.
 
-### Fixed
+### Also fixed (streaming protocol)
 
 - Session create no longer sends CloudMatch `requestedStreamingFeatures.bitDepth: 8`. That value is invalid (`0` = 8-bit SDR, `10` = 10-bit HDR) and NVIDIA answers HTTP 400 with a stub session body.
 - Gamepad is sent on `input_channel_v1` again. Routing it exclusively through `input_channel_partially_reliable` (OpenNOW desktop 0x26 packets) made Vita face buttons and sticks a no-op.
 - CloudMatch `mediaConnectionInfo` hostnames like `66-22-133-156.cloudmatchbeta.nvidiagrid.net` are decoded to IPv4 before ICE inject. Passing the hostname made `rtc` reject the candidate (`failed to parse address`). Signaling ports (322/443, usage 14) are not injected: that candidate panicked tokio (`EINVAL`) and froze ICE at checking.
-
 - Catalog GraphQL now resolves `vpcId` from NVIDIA CloudMatch again
   (`prod.cloudmatchbeta.nvidiagrid.net`), not the login provider's streaming URL.
   A partner or regional `serverId` still succeeds against `games.geforce.com` but
@@ -157,6 +194,7 @@ First public release.
 
 - Analog triggers and L3/R3 had no rear-touchpad mapping. *(Addressed in 0.3.0.)*
 
+[0.4.0]: https://github.com/zero-phoenix/OpenNOW-vita/releases/tag/v0.4.0
 [0.3.1]: https://github.com/OpenCloudGaming/OpenNOW-vita/releases/tag/v0.3.1
 [0.3.0]: https://github.com/OpenCloudGaming/OpenNOW-vita/releases/tag/v0.3.0
 [0.2.1]: https://github.com/OpenCloudGaming/OpenNOW-vita/releases/tag/v0.2.1
