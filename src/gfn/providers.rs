@@ -1,4 +1,3 @@
-
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -127,12 +126,18 @@ pub async fn discover_providers(client: &Client) -> Result<(GfnProvider, Vec<Gfn
     let preferred = if let Some(pref_name) = service_info.login_preferred_providers.first() {
         providers
             .iter()
-            .find(|p| p.display_name.eq_ignore_ascii_case(pref_name) || p.code.eq_ignore_ascii_case(pref_name))
+            .find(|p| {
+                p.display_name.eq_ignore_ascii_case(pref_name)
+                    || p.code.eq_ignore_ascii_case(pref_name)
+            })
             .cloned()
     } else if let Some(default_code) = &service_info.default_provider {
         providers
             .iter()
-            .find(|p| p.code.eq_ignore_ascii_case(default_code) || p.display_name.eq_ignore_ascii_case(default_code))
+            .find(|p| {
+                p.code.eq_ignore_ascii_case(default_code)
+                    || p.display_name.eq_ignore_ascii_case(default_code)
+            })
             .cloned()
     } else {
         None
@@ -140,4 +145,36 @@ pub async fn discover_providers(client: &Client) -> Result<(GfnProvider, Vec<Gfn
     .unwrap_or_else(|| providers[0].clone());
 
     Ok((preferred, providers))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_provider_is_nvidia_direct_not_a_regional_partner() {
+        // `start_device_login` skips server-side discovery entirely when
+        // `force_direct_nvidia_login` is set, relying on this default staying the plain NVIDIA
+        // idp/endpoint rather than whatever a `serviceUrls` response would have picked (e.g. a
+        // regional reseller like "GeForce NOW powered by Digevo").
+        let provider = GfnProvider::default();
+        assert!(provider.is_nvidia());
+        assert_eq!(provider.idp_id, DEFAULT_NVIDIA_IDP_ID);
+        assert_eq!(provider.streaming_service_url, DEFAULT_NVIDIA_STREAMING_URL);
+    }
+
+    #[test]
+    fn normalized_streaming_url_always_ends_with_slash() {
+        let provider = GfnProvider {
+            streaming_service_url: "https://example.test".to_owned(),
+            ..GfnProvider::default()
+        };
+        assert_eq!(provider.normalized_streaming_url(), "https://example.test/");
+
+        let provider = GfnProvider {
+            streaming_service_url: "https://example.test/".to_owned(),
+            ..GfnProvider::default()
+        };
+        assert_eq!(provider.normalized_streaming_url(), "https://example.test/");
+    }
 }

@@ -104,6 +104,9 @@ pub enum AppCommand {
     ToggleGameProfile,
     ToggleTriggerSwap,
     SetGameLanguage(crate::gfn::stream_prefs::GameLanguage),
+    /// Emitted by the Account tab; toggles bypassing regional-partner idp discovery (e.g. a
+    /// Peruvian ISP's "GeForce NOW powered by Digevo" reseller) and forcing NVIDIA's own login.
+    ToggleForceDirectNvidiaLogin,
     CloseServerPicker,
     FocusServerPicker(usize),
     LaunchOnServer(String),

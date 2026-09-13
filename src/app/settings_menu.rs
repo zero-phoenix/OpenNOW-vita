@@ -57,7 +57,7 @@ impl SettingsTab {
             Self::Stream => 5,
             Self::Controls => 8,
             Self::App => 2,
-            Self::Account => 0,
+            Self::Account => 1,
         }
     }
 }
@@ -151,6 +151,11 @@ pub fn row_info(tab: SettingsTab, row: usize) -> Option<RowInfo> {
             label_key: "settings-session-timer-heading",
             desc_key: Some("settings-session-timer-desc"),
             kind: RowKind::Toggle(crate::gfn::stream_prefs::session_timer_enabled()),
+        },
+        (SettingsTab::Account, 0) => RowInfo {
+            label_key: "settings-force-direct-login-heading",
+            desc_key: Some("settings-force-direct-login-desc"),
+            kind: RowKind::Toggle(crate::gfn::stream_prefs::force_direct_nvidia_login()),
         },
         _ => return None,
     })
@@ -352,6 +357,7 @@ pub fn command_for(
             .map(AppCommand::SetTriggerIntensity),
         (SettingsTab::App, 0) => Locale::ALL.get(index).copied().map(AppCommand::SetLocale),
         (SettingsTab::App, 1) => Some(AppCommand::ToggleSessionTimer),
+        (SettingsTab::Account, 0) => Some(AppCommand::ToggleForceDirectNvidiaLogin),
         (SettingsTab::Controls, 3) => Some(AppCommand::ToggleGameProfile),
         (SettingsTab::Controls, 4) => Some(AppCommand::ToggleTriggerSwap),
         (SettingsTab::Controls, 5) => Some(AppCommand::TogglePcOverlay),

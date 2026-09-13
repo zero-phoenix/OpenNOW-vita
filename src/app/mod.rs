@@ -767,6 +767,11 @@ impl App {
                 crate::gfn::stream_prefs::set_trigger_swap_enabled(!enabled);
                 current_state
             }
+            AppCommand::ToggleForceDirectNvidiaLogin => {
+                let enabled = crate::gfn::stream_prefs::force_direct_nvidia_login();
+                crate::gfn::stream_prefs::set_force_direct_nvidia_login(!enabled);
+                current_state
+            }
             AppCommand::SetGameLanguage(language) => {
                 crate::gfn::stream_prefs::set_game_language(language);
                 current_state

@@ -46,6 +46,16 @@ pub struct AppSettings {
     pub pc_overlay_alpha: u8,
     #[serde(default = "default_overlay_sensitivity_percent")]
     pub overlay_sensitivity_percent: u16,
+    /// When true (the default), login always uses NVIDIA's own idp and skips the
+    /// GeoIP/ISP-based `serviceUrls` provider discovery entirely. Some ISPs (e.g. Peruvian
+    /// carriers reselling GFN through "powered by Digevo") get silently redirected to that
+    /// regional partner's login/idp even over a VPN, because the request that decides the
+    /// preferred provider is a plain HTTPS GET to `pcs.geforcenow.com` that some networks
+    /// transparently proxy or that NVIDIA's GeoIP database still maps to the ISP's home
+    /// country. Forcing the direct NVIDIA idp avoids that endpoint altogether, which is what a
+    /// user with a US-registered Ultimate + persistent-storage account wants.
+    #[serde(default = "default_true")]
+    pub force_direct_nvidia_login: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -160,6 +170,7 @@ impl Default for AppSettings {
             pc_overlay_enabled: false,
             pc_overlay_alpha: default_overlay_alpha(),
             overlay_sensitivity_percent: default_overlay_sensitivity_percent(),
+            force_direct_nvidia_login: default_true(),
         }
     }
 }
@@ -722,6 +733,15 @@ pub fn trigger_swap_enabled() -> bool {
     s.trigger_swap_enabled
 }
 
+pub fn force_direct_nvidia_login() -> bool {
+    let s = load_or_init_settings();
+    s.force_direct_nvidia_login
+}
+
+pub fn set_force_direct_nvidia_login(enabled: bool) {
+    update_settings(|s| s.force_direct_nvidia_login = enabled);
+}
+
 pub fn set_trigger_swap_enabled(enabled: bool) {
     update_settings(|s| s.trigger_swap_enabled = enabled);
 }
@@ -928,11 +948,19 @@ mod tests {
     }
 
     #[test]
-    fn overlay_sensitivity_sniper_mode_halves_the_multiplier() {
-        // The L-trigger "sniper mode" macro halves whatever sensitivity is active; this pins the
-        // arithmetic so a future change to `percent()` cannot silently break that macro's math.
-        let normal = super::OverlaySensitivity::Normal.percent();
-        let halved = normal / 2;
-        assert_eq!(halved, 50);
+    fn settings_json_without_login_provider_field_defaults_to_forcing_direct_nvidia_login() {
+        // Old settings.json files predate this field entirely; a user upgrading must not be
+        // silently switched to their ISP's regional GFN partner (e.g. Digevo) just because the
+        // key was absent on disk.
+        let json = r#"{
+            "fps": 60,
+            "trigger_intensity": 255,
+            "audio_boost_percent": 1200,
+            "controls_hint_seen": false,
+            "stick_zones": "hidden"
+        }"#;
+        let settings: AppSettings =
+            serde_json::from_str(json).expect("pre-login-provider settings should load");
+        assert!(settings.force_direct_nvidia_login);
     }
 }

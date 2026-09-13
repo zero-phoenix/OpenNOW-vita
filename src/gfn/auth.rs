@@ -77,6 +77,25 @@ struct DeviceAuthorizationResponse {
 }
 
 pub async fn start_device_login(client: &Client) -> Result<DeviceCodeChallenge> {
+    // `discover_providers` calls `pcs.geforcenow.com/v1/serviceUrls`, which returns a
+    // `defaultProvider`/`loginPreferredProviders` chosen server-side from the request's source
+    // IP/ISP. For accounts on an ISP that resells GFN through a regional partner (e.g. Peru's
+    // "GeForce NOW powered by Digevo"), that lookup keeps steering login to the partner idp even
+    // when the device is behind a VPN with a US exit node - the geo/ISP mapping NVIDIA uses for
+    // this particular endpoint does not necessarily match the VPN's apparent country. A user whose
+    // NVIDIA account (and Ultimate + persistent-storage entitlement) was created directly with
+    // NVIDIA has no reason to ever hit that regional idp, so by default we skip the discovery
+    // call entirely and go straight to NVIDIA's own idp/device-authorize flow. This is exposed as
+    // `force_direct_nvidia_login` in settings (Account tab) in case someone actually wants/needs
+    // their regional partner's login (e.g. a partner-only promo entitlement).
+    if crate::gfn::stream_prefs::force_direct_nvidia_login() {
+        return start_device_login_with_provider(
+            client,
+            crate::gfn::providers::GfnProvider::default(),
+        )
+        .await;
+    }
+
     let (provider, _) = match crate::gfn::providers::discover_providers(client).await {
         Ok((provider, list)) => (provider, list),
         Err(_) => (crate::gfn::providers::GfnProvider::default(), vec![]),
@@ -84,7 +103,10 @@ pub async fn start_device_login(client: &Client) -> Result<DeviceCodeChallenge> 
     start_device_login_with_provider(client, provider).await
 }
 
-pub async fn start_device_login_with_idp(client: &Client, idp_id: &str) -> Result<DeviceCodeChallenge> {
+pub async fn start_device_login_with_idp(
+    client: &Client,
+    idp_id: &str,
+) -> Result<DeviceCodeChallenge> {
     let provider = crate::gfn::providers::GfnProvider {
         idp_id: idp_id.to_owned(),
         ..Default::default()
@@ -358,7 +380,9 @@ fn merge_refreshed(previous: &AuthTokens, response: TokenResponse) -> AuthTokens
         .is_some_and(|token| Some(token) != previous.client_token.as_ref());
     AuthTokens {
         access_token: response.access_token,
-        refresh_token: response.refresh_token.or_else(|| previous.refresh_token.clone()),
+        refresh_token: response
+            .refresh_token
+            .or_else(|| previous.refresh_token.clone()),
         id_token: response.id_token.or_else(|| previous.id_token.clone()),
         expires_at_unix: expires_at_unix(response.expires_in),
         // A rotated client token needs its own lifetime from /client_token, so mark it unknown (0)
@@ -370,7 +394,9 @@ fn merge_refreshed(previous: &AuthTokens, response: TokenResponse) -> AuthTokens
         } else {
             previous.client_token_expires_at_unix
         },
-        client_token: response.client_token.or_else(|| previous.client_token.clone()),
+        client_token: response
+            .client_token
+            .or_else(|| previous.client_token.clone()),
         membership_tier: previous.membership_tier.clone(),
         provider: previous.provider.clone(),
     }
@@ -450,7 +476,10 @@ async fn refresh_with_client_token(
     let response = post_token_form(
         client,
         &[
-            ("grant_type", "urn:ietf:params:oauth:grant-type:client_token"),
+            (
+                "grant_type",
+                "urn:ietf:params:oauth:grant-type:client_token",
+            ),
             ("client_token", client_token),
             ("client_id", CLIENT_ID),
             ("sub", user_id),
@@ -680,8 +709,8 @@ pub async fn fetch_membership_tier(
         None
     };
 
-    let tier = find_tier(&payload)
-        .context("membershipTier field missing in subscription response")?;
+    let tier =
+        find_tier(&payload).context("membershipTier field missing in subscription response")?;
 
     Ok(tier)
 }
@@ -971,7 +1000,8 @@ mod tests {
     #[test]
     fn stored_tokens_without_a_client_token_still_load() {
         // Token stores written before the client-token fields existed must keep working.
-        let legacy = r#"{"access_token":"a","refresh_token":"r","id_token":"i","expires_at_unix":5}"#;
+        let legacy =
+            r#"{"access_token":"a","refresh_token":"r","id_token":"i","expires_at_unix":5}"#;
         let tokens: AuthTokens = serde_json::from_str(legacy).expect("legacy store should load");
         assert_eq!(tokens.client_token, None);
         assert_eq!(tokens.client_token_expires_at_unix, 0);
