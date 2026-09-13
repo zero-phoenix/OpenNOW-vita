@@ -358,3 +358,10 @@ status-battery-low = Низкий заряд батареи ({ $percent }%) - с
 status-battery-critical = Критический заряд батареи - сессия принудительно остановлена во избежание ошибок при завершении работы.
 status-session-suspended = Сессия остановлена, потому что консоль перешла в режим сна.
 status-bitrate-lowered = Слабое соединение - битрейт снижен до { $mbps } Mbps.
+
+settings-overlay-opacity-ghost = Призрачный
+settings-overlay-opacity-strong = Сильный
+settings-control-profile-heading = Профиль управления
+settings-control-profile-desc = Игра отправляет все кнопки в игру. Рабочий стол превращает Vita в мышь и клавиатуру.
+settings-control-profile-game = Игра
+settings-control-profile-desktop = Рабочий стол

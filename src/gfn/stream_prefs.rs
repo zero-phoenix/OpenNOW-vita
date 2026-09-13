@@ -38,10 +38,19 @@ pub struct AppSettings {
     pub trigger_swap_enabled: bool,
     #[serde(default)]
     pub ui_locale: String,
-    /// Master switch for the PC-touch overlay mod: rear-panel mouse trackpad plus the front-panel
-    /// ESC/settings/DPI-slider/scroll-slider/enter/click zones. See `src/input.rs`.
-    #[serde(default)]
+    /// Master switch for the PC-touch overlay mod: rear-panel mouse plus the front-panel key
+    /// strips and sliders. See `src/input.rs`.
+    #[serde(default = "default_true")]
     pub pc_overlay_enabled: bool,
+    /// Which control profile the stream is in. `game` hands the pad to the title untouched and
+    /// keeps the rear panel as L2/R2; `desktop` repurposes the pad and rear panel as a
+    /// mouse/keyboard. See `ControlProfile`.
+    #[serde(default = "default_control_profile")]
+    pub control_profile: String,
+    /// Whether the overlay is expanded (zones + control panel drawn) or collapsed to just the
+    /// eye toggle. The eye itself is always drawn while `pc_overlay_enabled` is set.
+    #[serde(default = "default_true")]
+    pub overlay_revealed: bool,
     #[serde(default = "default_overlay_alpha")]
     pub pc_overlay_alpha: u8,
     #[serde(default = "default_overlay_sensitivity_percent")]
@@ -145,6 +154,10 @@ fn default_overlay_alpha() -> u8 {
     OverlayOpacity::default().alpha()
 }
 
+fn default_control_profile() -> String {
+    ControlProfile::default().key().to_owned()
+}
+
 fn default_overlay_sensitivity_percent() -> u16 {
     OverlaySensitivity::default().percent()
 }
@@ -167,7 +180,9 @@ impl Default for AppSettings {
             game_profiles: std::collections::BTreeMap::new(),
             trigger_swap_enabled: false,
             ui_locale: String::new(),
-            pc_overlay_enabled: false,
+            pc_overlay_enabled: true,
+            control_profile: default_control_profile(),
+            overlay_revealed: true,
             pc_overlay_alpha: default_overlay_alpha(),
             overlay_sensitivity_percent: default_overlay_sensitivity_percent(),
             force_direct_nvidia_login: default_true(),
@@ -754,8 +769,8 @@ pub fn set_ui_locale(locale: crate::locale::Locale) {
     update_settings(|s| s.ui_locale = locale.as_str().to_owned());
 }
 
-/// Master switch for the PC-touch overlay mod (rear-panel mouse trackpad + front-panel
-/// ESC/settings/DPI-slider/scroll-slider/enter/click zones). See `src/input.rs`.
+/// Master switch for the PC-touch overlay mod (rear-panel mouse + front-panel key strips).
+/// See `src/input.rs`.
 pub fn pc_overlay_enabled() -> bool {
     load_or_init_settings().pc_overlay_enabled
 }
@@ -764,41 +779,120 @@ pub fn set_pc_overlay_enabled(enabled: bool) {
     update_settings(|s| s.pc_overlay_enabled = enabled);
 }
 
-/// How opaque the overlay's on-screen buttons/sliders are drawn.
+/// Which of the two control schemes the stream is currently using.
+///
+/// The Vita has no physical L2/R2, so those triggers only exist as the rear touch panel. That
+/// makes "rear panel drives the mouse" and "rear panel drives L2/R2" mutually exclusive, which
+/// is exactly why this is a profile switch rather than a pile of independent toggles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum OverlayOpacity {
-    Faint,
+pub enum ControlProfile {
+    /// Pad is handed to the title untouched: rear panel = L2/R2, front bottom corners = L3/R3,
+    /// full d-pad. The overlay draws only the eye toggle and never eats a button.
     #[default]
-    Normal,
-    Bold,
+    Game,
+    /// Pad and rear panel are repurposed as a mouse/keyboard for the Windows desktop.
+    Desktop,
 }
 
-impl OverlayOpacity {
-    pub const ALL: [OverlayOpacity; 3] = [Self::Faint, Self::Normal, Self::Bold];
+impl ControlProfile {
+    pub const ALL: [ControlProfile; 2] = [Self::Game, Self::Desktop];
 
-    /// egui alpha byte (0..255) applied to the overlay's fills/strokes/text.
-    pub fn alpha(self) -> u8 {
+    pub fn key(self) -> &'static str {
         match self {
-            Self::Faint => 60,
-            Self::Normal => 120,
-            Self::Bold => 200,
+            Self::Game => "game",
+            Self::Desktop => "desktop",
         }
     }
 
     pub fn label_key(self) -> &'static str {
         match self {
+            Self::Game => "settings-control-profile-game",
+            Self::Desktop => "settings-control-profile-desktop",
+        }
+    }
+
+    fn from_key(key: &str) -> Self {
+        Self::ALL
+            .into_iter()
+            .find(|candidate| candidate.key() == key.trim())
+            .unwrap_or_default()
+    }
+}
+
+pub fn control_profile() -> ControlProfile {
+    ControlProfile::from_key(&load_or_init_settings().control_profile)
+}
+
+pub fn set_control_profile(profile: ControlProfile) {
+    update_settings(|s| s.control_profile = profile.key().to_owned());
+}
+
+/// True when the overlay's zones and control panel are expanded. The eye toggle itself stays
+/// drawn either way so the player can always get back.
+pub fn overlay_revealed() -> bool {
+    load_or_init_settings().overlay_revealed
+}
+
+pub fn set_overlay_revealed(revealed: bool) {
+    update_settings(|s| s.overlay_revealed = revealed);
+}
+
+/// How opaque the overlay's on-screen buttons/sliders are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverlayOpacity {
+    Ghost,
+    Faint,
+    #[default]
+    Normal,
+    Strong,
+    Bold,
+}
+
+impl OverlayOpacity {
+    pub const ALL: [OverlayOpacity; 5] = [
+        Self::Ghost,
+        Self::Faint,
+        Self::Normal,
+        Self::Strong,
+        Self::Bold,
+    ];
+
+    /// egui alpha byte (0..255) applied to the overlay's fills/strokes/text. The overlay is now
+    /// visible by default, so the scale starts far lower than it used to: the point is to keep
+    /// the buttons readable without washing out the 960x544 picture behind them.
+    pub fn alpha(self) -> u8 {
+        match self {
+            Self::Ghost => 40,
+            Self::Faint => 70,
+            Self::Normal => 110,
+            Self::Strong => 160,
+            Self::Bold => 210,
+        }
+    }
+
+    /// 0.0..1.0 multiplier for egui widgets that take a gamma multiply rather than a raw alpha,
+    /// such as the on-screen keyboard's panel and key fills.
+    pub fn multiplier(self) -> f32 {
+        f32::from(self.alpha()) / 255.0
+    }
+
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Ghost => "settings-overlay-opacity-ghost",
             Self::Faint => "settings-overlay-opacity-faint",
             Self::Normal => "settings-overlay-opacity-normal",
+            Self::Strong => "settings-overlay-opacity-strong",
             Self::Bold => "settings-overlay-opacity-bold",
         }
     }
 
+    /// Maps a stored raw alpha back onto the nearest preset, so settings written by an older
+    /// build (which only had 60/120/200) still land somewhere sensible.
     fn from_value(value: u8) -> Self {
-        match value {
-            v if v <= 80 => Self::Faint,
-            v if v <= 150 => Self::Normal,
-            _ => Self::Bold,
-        }
+        Self::ALL
+            .into_iter()
+            .min_by_key(|candidate| candidate.alpha().abs_diff(value))
+            .unwrap_or_default()
     }
 }
 
@@ -919,7 +1013,14 @@ mod tests {
         }"#;
         let settings: AppSettings =
             serde_json::from_str(json).expect("pre-overlay settings should load");
-        assert!(!settings.pc_overlay_enabled);
+        // v0.5.0 flipped this default on: the overlay shipping off is precisely why players
+        // never saw it and kept using the legacy front-screen trackpad instead.
+        assert!(settings.pc_overlay_enabled);
+        assert!(settings.overlay_revealed);
+        assert_eq!(
+            super::ControlProfile::from_key(&settings.control_profile),
+            super::ControlProfile::Game
+        );
         assert_eq!(
             settings.pc_overlay_alpha,
             super::OverlayOpacity::Normal.alpha()
@@ -927,6 +1028,35 @@ mod tests {
         assert_eq!(
             settings.overlay_sensitivity_percent,
             super::OverlaySensitivity::Normal.percent()
+        );
+    }
+
+    #[test]
+    fn control_profile_round_trips_through_its_key() {
+        for profile in super::ControlProfile::ALL {
+            assert_eq!(super::ControlProfile::from_key(profile.key()), profile);
+        }
+        assert_eq!(
+            super::ControlProfile::from_key("nonsense"),
+            super::ControlProfile::Game
+        );
+    }
+
+    #[test]
+    fn legacy_overlay_alpha_values_snap_to_the_nearest_new_preset() {
+        // The 0.4.x scale only had 60/120/200; those stored bytes must still map somewhere sane
+        // rather than silently resetting to the default.
+        assert_eq!(
+            super::OverlayOpacity::from_value(60),
+            super::OverlayOpacity::Faint
+        );
+        assert_eq!(
+            super::OverlayOpacity::from_value(120),
+            super::OverlayOpacity::Normal
+        );
+        assert_eq!(
+            super::OverlayOpacity::from_value(200),
+            super::OverlayOpacity::Bold
         );
     }
 

@@ -1815,6 +1815,205 @@ fn allocate_device_image(
     Some(image)
 }
 
+/// True when the desktop profile's key strips are actually on screen. The stick-zone hints hide
+/// while they are, since the bottom strip sits on top of the L3/R3 corners.
+fn pc_overlay_desktop_zones_visible() -> bool {
+    use crate::gfn::stream_prefs as prefs;
+    prefs::pc_overlay_enabled()
+        && prefs::control_profile() == prefs::ControlProfile::Desktop
+        && prefs::overlay_revealed()
+}
+
+/// Converts a normalized `(x0, y0, x1, y1)` overlay box into screen coordinates.
+fn overlay_rect(screen: egui::Rect, bounds: (f32, f32, f32, f32)) -> egui::Rect {
+    let (x0, y0, x1, y1) = bounds;
+    egui::Rect::from_min_max(
+        egui::pos2(
+            screen.min.x + screen.width() * x0,
+            screen.min.y + screen.height() * y0,
+        ),
+        egui::pos2(
+            screen.min.x + screen.width() * x1,
+            screen.min.y + screen.height() * y1,
+        ),
+    )
+}
+
+/// Paints the PC-touch overlay: the always-visible eye toggle, and - when the desktop profile is
+/// revealed - the two key strips, the slider rails and the control manual.
+///
+/// Nothing here is an egui widget. The whole overlay is driven by the stream touch router in
+/// `shell::run` against the same normalized geometry `crate::input` hit-tests, so the drawing and
+/// the hit-testing cannot drift; registering these as egui widgets would hand the touches back to
+/// egui and break that.
+fn paint_pc_overlay(ui: &mut egui::Ui) {
+    use crate::gfn::stream_prefs as prefs;
+
+    let screen = ui.ctx().screen_rect();
+    let alpha = prefs::overlay_opacity().alpha();
+    let revealed = prefs::overlay_revealed();
+    let desktop = prefs::control_profile() == prefs::ControlProfile::Desktop;
+    let painter = ui.painter();
+
+    if revealed && desktop {
+        for (_zone, label, bounds) in crate::input::overlay_zone_rects() {
+            let rect = overlay_rect(screen, bounds).shrink(1.5);
+            painter.rect_filled(
+                rect,
+                5.0_f32,
+                egui::Color32::from_rgba_unmultiplied(30, 34, 44, alpha),
+            );
+            painter.rect_stroke(
+                rect,
+                5u8,
+                egui::Stroke::new(
+                    1.0_f32,
+                    egui::Color32::from_rgba_unmultiplied(200, 140, 40, alpha),
+                ),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::proportional(13.0),
+                egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha.saturating_add(70)),
+            );
+        }
+    }
+
+    if revealed {
+        paint_control_manual(painter, screen, alpha, desktop);
+
+        // Profile switch, directly under the eye.
+        let mode = overlay_rect(screen, crate::input::OVERLAY_MODE_RECT).shrink(3.0);
+        let mode_alpha = alpha.max(70);
+        painter.rect_filled(
+            mode,
+            6.0_f32,
+            egui::Color32::from_rgba_unmultiplied(20, 24, 32, mode_alpha),
+        );
+        painter.text(
+            mode.center(),
+            egui::Align2::CENTER_CENTER,
+            if desktop { "\u{1f5b1}" } else { "\u{1f3ae}" },
+            egui::FontId::proportional(16.0),
+            egui::Color32::from_rgba_unmultiplied(255, 255, 255, mode_alpha.saturating_add(60)),
+        );
+    }
+
+    // The eye last, so it is never painted over: it is the only way back once collapsed.
+    let eye = overlay_rect(screen, crate::input::OVERLAY_EYE_RECT).shrink(3.0);
+    let eye_alpha = alpha.max(70);
+    painter.rect_filled(
+        eye,
+        6.0_f32,
+        egui::Color32::from_rgba_unmultiplied(20, 24, 32, eye_alpha),
+    );
+    let glyph = if revealed { "\u{1f441}" } else { "\u{25cb}" };
+    painter.text(
+        eye.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        egui::FontId::proportional(18.0),
+        egui::Color32::from_rgba_unmultiplied(255, 255, 255, eye_alpha.saturating_add(60)),
+    );
+    let profile_tag = if desktop { "PC" } else { "GAME" };
+    painter.text(
+        egui::pos2(eye.center().x, eye.max.y - 5.0),
+        egui::Align2::CENTER_BOTTOM,
+        profile_tag,
+        egui::FontId::proportional(9.0),
+        egui::Color32::from_rgba_unmultiplied(200, 140, 40, eye_alpha.saturating_add(60)),
+    );
+}
+
+/// Minimalist graphical control manual, drawn in the clear middle of the screen while the
+/// overlay is revealed. Shows what every stick and button does in the active profile, so the
+/// player never has to guess or leave the stream to check.
+fn paint_control_manual(painter: &egui::Painter, screen: egui::Rect, alpha: u8, desktop: bool) {
+    // Left column = left-hand controls, right column = right-hand controls, mirroring the Vita.
+    let rows: [(&str, &str); 8] = if desktop {
+        [
+            ("\u{25cf} Stick L", "Cursor fino"),
+            ("\u{25cf} Stick R", "Scroll"),
+            ("\u{271a} D-Pad", "Flechas"),
+            ("\u{2715} / \u{25cb}", "Clic izq. / der."),
+            ("\u{25b3} / \u{25a1}", "Enter / Borrar"),
+            ("L / R", "Precision / Doble clic"),
+            ("SELECT / START", "Teclado / Win"),
+            ("Panel trasero", "Raton + clic por mitades"),
+        ]
+    } else {
+        [
+            ("\u{25cf} Sticks", "Al juego"),
+            ("\u{271a} D-Pad", "Al juego"),
+            ("\u{2715} \u{25cb} \u{25b3} \u{25a1}", "Al juego"),
+            ("L / R", "L1 / R1"),
+            ("Panel trasero", "L2 / R2 analogicos"),
+            ("Esquinas inf.", "L3 / R3"),
+            ("SELECT / START", "Al juego"),
+            ("\u{1f441} Ojo", "Cambia a modo PC"),
+        ]
+    };
+
+    let title = if desktop {
+        "MODO ESCRITORIO"
+    } else {
+        "MODO JUEGO"
+    };
+
+    let width = screen.width() * 0.46;
+    let line_height = 13.0;
+    let height = line_height * (rows.len() as f32 + 1.6);
+    let card = egui::Rect::from_center_size(
+        egui::pos2(screen.center().x, screen.center().y),
+        egui::vec2(width, height),
+    );
+    // The manual is a reference, not a control, so it sits a notch fainter than the buttons.
+    let card_alpha = alpha.saturating_sub(20).max(30);
+    painter.rect_filled(
+        card,
+        6.0_f32,
+        egui::Color32::from_rgba_unmultiplied(16, 19, 26, card_alpha),
+    );
+    painter.rect_stroke(
+        card,
+        6u8,
+        egui::Stroke::new(
+            1.0_f32,
+            egui::Color32::from_rgba_unmultiplied(200, 140, 40, card_alpha),
+        ),
+        egui::StrokeKind::Inside,
+    );
+
+    let text_alpha = card_alpha.saturating_add(90);
+    painter.text(
+        egui::pos2(card.center().x, card.min.y + 4.0),
+        egui::Align2::CENTER_TOP,
+        title,
+        egui::FontId::proportional(11.0),
+        egui::Color32::from_rgba_unmultiplied(200, 140, 40, text_alpha),
+    );
+    for (index, (control, effect)) in rows.iter().enumerate() {
+        let y = card.min.y + line_height * (index as f32 + 1.6);
+        painter.text(
+            egui::pos2(card.min.x + 8.0, y),
+            egui::Align2::LEFT_TOP,
+            control,
+            egui::FontId::proportional(10.0),
+            egui::Color32::from_rgba_unmultiplied(235, 235, 245, text_alpha),
+        );
+        painter.text(
+            egui::pos2(card.max.x - 8.0, y),
+            egui::Align2::RIGHT_TOP,
+            effect,
+            egui::FontId::proportional(10.0),
+            egui::Color32::from_rgba_unmultiplied(170, 178, 195, text_alpha),
+        );
+    }
+}
+
 fn paint_pulsing_zone(
     painter: &egui::Painter,
     cell: egui::Rect,
@@ -3864,7 +4063,7 @@ fn streaming_screen(
         // egui, and these are driven by the stream touch router instead.
         if has_video
             && crate::gfn::stream_prefs::stick_zones().is_visible()
-            && !crate::gfn::stream_prefs::pc_overlay_enabled()
+            && !pc_overlay_desktop_zones_visible()
         {
             let screen = ui.ctx().screen_rect();
             let painter = ui.painter();
@@ -3905,33 +4104,7 @@ fn streaming_screen(
         }
 
         if has_video && crate::gfn::stream_prefs::pc_overlay_enabled() {
-            let screen = ui.ctx().screen_rect();
-            let painter = ui.painter();
-            let alpha = crate::gfn::stream_prefs::overlay_opacity().alpha();
-            for (_zone, label, (x0, y0, x1, y1)) in crate::input::overlay_zone_rects() {
-                let rect = egui::Rect::from_min_max(
-                    egui::pos2(
-                        screen.min.x + screen.width() * x0,
-                        screen.min.y + screen.height() * y0,
-                    ),
-                    egui::pos2(
-                        screen.min.x + screen.width() * x1,
-                        screen.min.y + screen.height() * y1,
-                    ),
-                );
-                painter.rect_filled(
-                    rect,
-                    6.0_f32,
-                    egui::Color32::from_rgba_unmultiplied(200, 140, 40, alpha),
-                );
-                painter.text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    label,
-                    egui::FontId::proportional(20.0),
-                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha.saturating_add(60)),
-                );
-            }
+            paint_pc_overlay(ui);
         }
 
         if crate::gfn::stream_prefs::session_timer_enabled() {
@@ -4344,8 +4517,13 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
         .fixed_pos(panel_rect.min)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
+            // Tied to the overlay's opacity preference so the picture stays readable behind the
+            // keyboard; it used to be effectively solid at 0.96.
+            let translucency = crate::gfn::stream_prefs::overlay_opacity()
+                .multiplier()
+                .clamp(0.35, 0.9);
             egui::Frame::window(&ui.style())
-                .fill(BG_PANEL.gamma_multiply(0.96))
+                .fill(BG_PANEL.gamma_multiply(translucency))
                 .inner_margin(egui::Margin::same(KEYBOARD_PADDING as i8))
                 .outer_margin(egui::Margin::ZERO)
                 .shadow(egui::Shadow::NONE)
@@ -4383,7 +4561,7 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                 button = if active {
                                     button.fill(ACCENT.gamma_multiply(0.35))
                                 } else {
-                                    button.fill(BG_RAISED)
+                                    button.fill(BG_RAISED.gamma_multiply(translucency))
                                 };
                                 let response = ui.add_sized([width, KEYBOARD_CAP_SIZE.y], button);
                                 if !response.clicked() {

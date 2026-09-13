@@ -358,3 +358,10 @@ status-battery-low = Battery low ({ $percent }%) - the session will stop before 
 status-battery-critical = Battery critical - session stopped so it could be released cleanly.
 status-session-suspended = Session stopped because the console went to sleep.
 status-bitrate-lowered = Connection struggling - lowered the ceiling to { $mbps } Mbps.
+
+settings-overlay-opacity-ghost = Ghost
+settings-overlay-opacity-strong = Strong
+settings-control-profile-heading = Control profile
+settings-control-profile-desc = Game sends every button to the title. Desktop turns the Vita into a mouse and keyboard.
+settings-control-profile-game = Game
+settings-control-profile-desktop = Desktop

@@ -12,8 +12,9 @@ your controller, and optionally a full keyboard+mouse, forwarded back into the s
 time. No PC, phone, or browser is involved once you're signed in.
 
 This fork of [OpenCloudGaming/OpenNOW-vita](https://github.com/OpenCloudGaming/OpenNOW-vita)
-adds a **PC-Touch Overlay Mod** that turns the Vita's front and rear touchscreens into a
-keyboard+mouse for the remote desktop — handy for driving Windows, Steam, or Epic through a
+adds **two switchable control profiles** - one that forwards every control to the game, and one
+that turns the Vita's touchscreens, sticks and buttons into a keyboard+mouse for the remote
+desktop — handy for driving Windows, Steam, or Epic through a
 GeForce NOW Ultimate **Install-to-Play** session — plus a set of reliability fixes around
 Install-to-Play catalog visibility, session cleanup, and sign-in routing. See
 [What this fork changes](#what-this-fork-changes) for the full list.
@@ -32,7 +33,7 @@ egui for the UI, direct-to-texture hardware video decoding, and VPK packaging vi
 
 - [Features](#features)
 - [What this fork changes](#what-this-fork-changes)
-- [PC-Touch Overlay Mod](#pc-touch-overlay-mod)
+- [Control profiles: playing games vs driving Windows](#control-profiles-playing-games-vs-driving-windows)
 - [Sign-in routing: avoiding regional partner logins](#sign-in-routing-avoiding-regional-partner-logins)
 - [Status](#status)
 - [Getting a build](#getting-a-build)
@@ -77,11 +78,12 @@ egui for the UI, direct-to-texture hardware video decoding, and VPK packaging vi
   `input_channel_v1` data channel in XInput format.
 - **Rear touch panel as analog triggers** — L2/R2 mapped to the back touchpad (the Vita has no
   physical analog triggers), with selectable trigger intensity, plus L3/R3 zones on the front
-  screen (superseded by mouse clicks while the PC-Touch Overlay is on — see below).
+  screen. In the desktop control profile the rear panel becomes the mouse instead — see below.
 - **In-game keyboard** — the Vita's inline IME, wired so character/Backspace/Enter/arrow edits
   are forwarded to the stream as real keystrokes.
-- **PC-Touch Overlay Mod** — use the Vita as a keyboard+mouse for the remote desktop; see
-  [below](#pc-touch-overlay-mod).
+- **Two control profiles** — forward everything to the game, or turn the Vita into a mouse and
+  keyboard for the remote Windows desktop; see
+  [below](#control-profiles-playing-games-vs-driving-windows).
 - **Region pinning** — `src/gfn/regions.rs` lets the client pin a specific streaming
   zone/region instead of always taking NVIDIA's default geo-routed one, useful where the
   automatically-selected zone isn't the best link for your ISP.
@@ -107,9 +109,11 @@ egui for the UI, direct-to-texture hardware video decoding, and VPK packaging vi
 Relative to upstream [OpenCloudGaming/OpenNOW-vita](https://github.com/OpenCloudGaming/OpenNOW-vita),
 this fork adds:
 
-1. **[PC-Touch Overlay Mod](#pc-touch-overlay-mod)** — full keyboard+mouse control of the
-   remote desktop from the Vita's own touchscreens, with physical-button macros, all gated
-   behind a single Settings toggle so it never interferes with normal controller play.
+1. **[Two control profiles](#control-profiles-playing-games-vs-driving-windows)** — a *game*
+   profile that forwards every stick, button and trigger to the title untouched, and a
+   *desktop* profile that turns the Vita into a mouse and keyboard for the Windows session
+   Install-to-Play titles boot into, with an always-visible eye toggle to swap between them
+   mid-stream and an on-screen manual for each.
 2. **Install-to-Play catalog/launch fixes** — titles you own on a linked store (Steam, Epic)
    whose Install-to-Play variant has a non-numeric id no longer vanish from the library or
    launch under the wrong variant; `accountLinked` reflects real ownership instead of a
@@ -128,49 +132,108 @@ this fork adds:
 See `CHANGELOG.md` for the complete, dated history of every change, including everything
 inherited from upstream.
 
-## PC-Touch Overlay Mod
+## Control profiles: playing games vs driving Windows
 
-This fork adds a mode that turns the Vita's two touchscreens into a keyboard+mouse for
-controlling whatever is running on the far end of the stream — for example, the Windows 11
-desktop under a GeForce NOW Ultimate **Install-to-Play** session, so you can drive Steam/Epic
-game and OS UI without a physical mouse and keyboard nearby. Enable it from **Settings →
-Controls → PC overlay**.
+A GeForce NOW **Install-to-Play** session does not drop you into a game — it drops you into a
+**Windows 11 desktop**, where you have to click through Steam or the Epic launcher before the
+game ever starts. A gamepad is useless there, and a mouse is useless once the game starts. The
+Vita has to be both, and it has to switch between them without ending the session.
 
-- **Rear touch panel (back of the Vita) drives the mouse cursor.** The NVST input protocol
-  only has a *relative* mouse-move packet (`INPUT_MOUSE_MOVE_REL`, clamped at ±4096 per axis)
-  — there is no absolute-position packet to move a cursor to an exact point on the host
-  screen. So the rear panel is deliberately mapped as a **relative trackpad**: dragging your
-  finger moves the cursor by a delta, the same way a laptop trackpad works, not a 1:1
-  touch-to-pixel map. A configurable DPI/sensitivity multiplier scales that delta.
-- **Front screen exposes seven overlay zones** (only active while the PC overlay is on), drawn
-  with semi-transparent egui rectangles and readable labels, at a configurable opacity:
-  - Top-left corner — **Esc**
-  - Top-right corner — opens the app's own **Settings** menu (interrupts game input while open)
-  - Left edge, middle — vertical **DPI/sensitivity slider** for the rear trackpad
-  - Bottom-left corner — **left click**
-  - Bottom-right corner — **right click**
-  - Right edge, middle — vertical **scroll slider** (mouse wheel)
-  - Right edge, between the scroll slider and the right-click corner — **Enter**
-- **Mutually exclusive with L3/R3.** The front screen's bottom corners are also where the
-  existing `FrontStickZones` maps L3/R3 for normal controller play. Turning the PC overlay on
-  hands those corners to mouse clicks instead; turning it off gives them straight back to
-  L3/R3, with no double-input or fighting between the two modes.
-- **Scroll wheel is a real NVST packet, not a fallback.** `INPUT_MOUSE_WHEEL` was added to
-  `src/gfn/input_protocol.rs`, ported from the OpenNOW/OpenNOW-Switch reference clients' wire
-  format — not invented from scratch.
-- **Physical-button macros**, active only while the overlay is on:
-  - **L trigger (held)** — halves the mouse sensitivity ("sniper mode"), for fine cursor work
-  - **SELECT** — toggles the on-screen keyboard
-  - **D-Pad Up** — sends **Win+D** (show desktop)
-  - **D-Pad Down** — sends **Ctrl+Alt+Del**
-- Overlay on/off, opacity, and mouse sensitivity are persistent preferences (`stream_prefs.rs`)
-  editable from Settings, same as every other stream/control option.
+It cannot be both *at once*. The Vita has no physical L2/R2 triggers — they exist only as zones
+on the rear touch panel — so "rear panel is the mouse" and "rear panel is L2/R2" are genuinely
+mutually exclusive. Rather than half-doing both and leaving you with an unreliable version of
+each, this fork has **two explicit control profiles** and makes swapping between them a single
+tap:
 
-Relevant source: `src/input.rs` (touch-zone routing, physical-button macros),
-`src/gfn/input_protocol.rs` (mouse-move/wheel packet encoding), `src/gfn/stream_prefs.rs`
-(persisted overlay prefs), `src/app/settings_menu.rs` and `src/app/ui.rs` (settings rows and
-egui overlay rendering).
+| | **Game profile** (default) | **Desktop profile** |
+|---|---|---|
+| Sticks | to the title | left = fine cursor, right = scroll wheel |
+| D-Pad | to the title | arrow keys, with hold-to-repeat |
+| Face buttons | to the title | ✕/○ = left/right mouse button (held), △ = Enter, □ = Backspace |
+| L / R | L1 / R1 | L = precision mode (½ sensitivity), R = double-click |
+| Rear panel | L2 / R2, pressure-graded | mouse cursor + click (left half / right half) |
+| Front bottom corners | L3 / R3 | modifier & key strip |
+| SELECT / START | to the title | on-screen keyboard / Windows key |
 
+The game profile forwards **everything** to the title, untouched — it is byte-for-byte what you
+get with the overlay switched off, which is what makes Death Stranding- and Silent Hill f-class
+titles actually playable while the overlay is still on screen.
+
+### The eye
+
+There is always a small semi-transparent **eye** in the top-right corner of the front screen. It
+is drawn at a higher minimum opacity than everything else, on purpose: it is the way back, so it
+must never be able to fade into the picture.
+
+- **Tap the eye** — reveal or hide the entire overlay.
+- **Tap the switch directly under the eye** — swap between the game and desktop profiles. It is
+  live in both profiles, so you can never strand yourself in game mode with no way out.
+- While revealed, a **minimalist control manual** is drawn in the middle of the screen listing
+  what every stick and button does *in the profile you are currently in*.
+
+Overlay on/off, revealed/hidden, the active profile, opacity (five steps, Ghost → Bold) and
+mouse sensitivity are all persistent preferences under **Settings → Controls**.
+
+### Front-screen layout (desktop profile)
+
+The keys live in two thin strips along the top and bottom edges plus two narrow slider rails,
+which leaves the **entire middle of the 960×544 panel clear**. The earlier 0.4.x design put
+zones on all four edges *and* both bottom corners; it bracketed the picture and stole the
+corners the stick zones need.
+
+```
+┌──────────────────────────────────────────────────────┬────┐
+│ ESC  TAB  ⊞  ALT⇥  COPY  PASTE  ⌨  ⚙                 │ 👁 │
+├──────────────────────────────────────────────────────┼────┤
+│                                                      │ 🎮 │
+│ ▲                                                  ▲ └────┘
+│ │ DPI                                        SCROLL │      
+│ ▼                                                  ▼       
+│                                                            │
+├────────────────────────────────────────────────────────────┤
+│ SHIFT   CTRL   ALT   ⏎   ⌫   C-A-DEL                       │
+└────────────────────────────────────────────────────────────┘
+```
+
+Shift/Ctrl/Alt are **sticky** modifiers, shared with the on-screen keyboard's own modifier
+state, so `Ctrl` then a letter from the keyboard is a real chord.
+
+### Rear panel as a mouse
+
+The NVST input protocol has only a *relative* mouse-move packet (`INPUT_MOUSE_MOVE_REL`, clamped
+at ±4096 per axis) — there is no absolute-position packet that could move the host cursor to an
+exact point. The rear panel is therefore mapped as a **relative trackpad**: dragging moves the
+cursor by a delta, like a laptop trackpad, not a 1:1 touch-to-pixel map. A configurable
+sensitivity multiplier scales that delta, and holding **L** halves it for precision work.
+
+It also **clicks**: a tap on the left half is a left click, the right half a right click.
+Earlier builds deliberately refused to click from the rear panel, on the grounds that the panel
+is out of sight and a stray tap would be hard to notice. In practice the opposite was true —
+with no rear click there was no way to click at all without covering the picture with a thumb.
+The safeguard is that a click only fires when the finger lifts within **300 ms** *and* travelled
+less than **5 %** of the panel; anything slower or further is a cursor drag and clicks nothing.
+
+### Scroll wheel
+
+`INPUT_MOUSE_WHEEL` was added to `src/gfn/input_protocol.rs`, ported from the OpenNOW /
+OpenNOW-Switch reference clients' wire format rather than invented, and emitted in whole ±120
+notches (the `WHEEL_DELTA` convention Windows expects). Both the right stick and the right-hand
+slider rail drive it.
+
+### Picture quality
+
+The stream is already requested at the panel's **native 960×544** with linear filtering and
+32-bit colour, so there was no resolution left to gain. What there was to gain was bitrate: the
+adaptive ceiling was capped at 12 Mbps, and at native resolution every encoder artefact lands on
+a real pixel with no downscale to hide it, which showed as mush in dark, high-motion scenes.
+0.5.0 raises the ceiling to **20 Mbps** (first-run estimate 8 → 12). This only changes the
+maximum the measured estimate may climb to — the lowering path is untouched, so a weak link
+still ratchets straight back down.
+
+Relevant source: `src/input.rs` (touch-zone geometry, profile-aware routing, stick/button
+mapping), `src/shell/mod.rs` (touch-ownership arbitration), `src/gfn/input_protocol.rs` (mouse
+move/wheel packet encoding), `src/gfn/stream_prefs.rs` (persisted prefs), `src/app/ui.rs`
+(egui overlay rendering and the control manual), `src/gfn/link_estimate.rs` (bitrate ceiling).
 ## Sign-in routing: avoiding regional partner logins
 
 GeForce NOW's device-code sign-in normally starts by asking NVIDIA's backend which login
@@ -200,6 +263,7 @@ to.
 | 6 | Real-hardware validation | ✅ Confirmed working on an original PS Vita |
 | 7 | PC-Touch Overlay Mod (KB+mouse over the stream) | ✅ Implemented; smoke-tested boot/render in Vita3K |
 | 8 | Direct NVIDIA login routing (skip partner discovery) | ✅ Implemented; each CI build re-verified booting in Vita3K |
+| 9 | Control-profile redesign (game vs desktop, eye toggle) | ✅ Implemented in 0.5.0 |
 
 Development is validated against both [Vita3K](https://vita3k.org/) (whose `sceAvcdec` only
 implements YUV420 output, handled at runtime, and whose `sceNet` stack is stubbed — enough to

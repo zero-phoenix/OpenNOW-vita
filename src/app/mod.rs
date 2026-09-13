@@ -888,6 +888,10 @@ impl App {
                 crate::gfn::stream_prefs::set_overlay_sensitivity(sensitivity);
                 current_state
             }
+            AppCommand::SetControlProfile(profile) => {
+                crate::gfn::stream_prefs::set_control_profile(profile);
+                current_state
+            }
             AppCommand::SetMaxBitrate(kbps) => {
                 if let AppState::Streaming { peer, .. } = &current_state {
                     peer.set_max_bitrate(kbps);

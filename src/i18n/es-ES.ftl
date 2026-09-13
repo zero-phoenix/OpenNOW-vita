@@ -358,3 +358,10 @@ status-battery-low = Batería baja ({ $percent }%): la sesión se detendrá ante
 status-battery-critical = Batería crítica: sesión detenida para poder liberarla correctamente.
 status-session-suspended = Sesión detenida porque la consola entró en reposo.
 status-bitrate-lowered = Conexión con problemas: techo bajado a { $mbps } Mbps.
+
+settings-overlay-opacity-ghost = Fantasma
+settings-overlay-opacity-strong = Fuerte
+settings-control-profile-heading = Perfil de control
+settings-control-profile-desc = Juego envia todos los botones al titulo. Escritorio convierte la Vita en raton y teclado.
+settings-control-profile-game = Juego
+settings-control-profile-desktop = Escritorio

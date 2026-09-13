@@ -1,7 +1,7 @@
 use crate::gfn::regions::StreamRegion;
 use crate::gfn::stream_prefs::{
-    AudioBoost, ColorDepth, GameLanguage, OverlayOpacity, OverlaySensitivity, RearTouchMode,
-    StickZones, StreamFps, TriggerIntensity,
+    AudioBoost, ColorDepth, ControlProfile, GameLanguage, OverlayOpacity, OverlaySensitivity,
+    RearTouchMode, StickZones, StreamFps, TriggerIntensity,
 };
 use crate::i18n::I18n;
 use crate::input::AppCommand;
@@ -55,7 +55,7 @@ impl SettingsTab {
     pub fn row_count(self) -> usize {
         match self {
             Self::Stream => 5,
-            Self::Controls => 8,
+            Self::Controls => 9,
             Self::App => 2,
             Self::Account => 1,
         }
@@ -142,6 +142,11 @@ pub fn row_info(tab: SettingsTab, row: usize) -> Option<RowInfo> {
             desc_key: Some("settings-overlay-sensitivity-desc"),
             kind: RowKind::Choice,
         },
+        (SettingsTab::Controls, 8) => RowInfo {
+            label_key: "settings-control-profile-heading",
+            desc_key: Some("settings-control-profile-desc"),
+            kind: RowKind::Choice,
+        },
         (SettingsTab::App, 0) => RowInfo {
             label_key: "settings-language-heading",
             desc_key: Some("settings-language-desc"),
@@ -174,6 +179,7 @@ pub fn option_count(tab: SettingsTab, row: usize, regions_len: usize) -> usize {
             (SettingsTab::App, 0) => Locale::ALL.len(),
             (SettingsTab::Controls, 6) => OverlayOpacity::ALL.len(),
             (SettingsTab::Controls, 7) => OverlaySensitivity::ALL.len(),
+            (SettingsTab::Controls, 8) => ControlProfile::ALL.len(),
             _ => 0,
         },
         Some(RowKind::Region) => 1 + regions_len,
@@ -227,6 +233,10 @@ pub fn current_option_index(
         (SettingsTab::Controls, 7) => OverlaySensitivity::ALL
             .iter()
             .position(|&c| c == crate::gfn::stream_prefs::overlay_sensitivity())
+            .unwrap_or(0),
+        (SettingsTab::Controls, 8) => ControlProfile::ALL
+            .iter()
+            .position(|&c| c == crate::gfn::stream_prefs::control_profile())
             .unwrap_or(0),
         (SettingsTab::Stream, 0) => {
             let selected = crate::gfn::stream_prefs::region();
@@ -289,6 +299,10 @@ pub fn option_label(
             .map(|c| i18n.text(c.label_key()).to_string())
             .unwrap_or_default(),
         (SettingsTab::Controls, 7) => OverlaySensitivity::ALL
+            .get(index)
+            .map(|c| i18n.text(c.label_key()).to_string())
+            .unwrap_or_default(),
+        (SettingsTab::Controls, 8) => ControlProfile::ALL
             .get(index)
             .map(|c| i18n.text(c.label_key()).to_string())
             .unwrap_or_default(),
@@ -369,6 +383,10 @@ pub fn command_for(
             .get(index)
             .copied()
             .map(AppCommand::SetOverlaySensitivity),
+        (SettingsTab::Controls, 8) => ControlProfile::ALL
+            .get(index)
+            .copied()
+            .map(AppCommand::SetControlProfile),
         (SettingsTab::Stream, 0) => {
             if index == 0 {
                 Some(AppCommand::SetRegion(String::new()))

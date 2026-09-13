@@ -5,6 +5,72 @@ All notable changes to OpenNOW Vita are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-09-13
+
+Complete redesign of the on-screen controls. 0.4.x shipped the PC-touch overlay switched **off**
+by default and, when it was switched on, it quietly replaced the gamepad snapshot with a neutral
+one — so the overlay was invisible unless you went looking for it, and turning it on broke L2/R2,
+L3/R3 and half the D-pad. Both of those are gone.
+
+### Added
+
+- **Two control profiles, switchable mid-stream.** The Vita has no physical L2/R2: they only
+  exist as rear-panel zones, so "rear panel = mouse" and "rear panel = triggers" genuinely cannot
+  coexist. Rather than half-doing both, the client now has two explicit profiles and swaps
+  between them instantly:
+  - **Game** — every stick, button, trigger zone and stick-click reaches the title untouched.
+    This is what you want for Death Stranding, Silent Hill f and anything else made for a pad.
+  - **Desktop** — the Vita becomes a mouse and keyboard for the Windows session that
+    Install-to-Play titles boot into.
+- **Always-visible eye toggle** (top-right of the front screen, deliberately drawn at a higher
+  alpha floor than everything else so it can never become invisible). Tapping it reveals or
+  hides the whole overlay; it is live in both profiles, so you can never lock yourself out.
+- **Profile switch** directly under the eye, live in both profiles while revealed — the only
+  touch route out of the game profile, where the key strips are intentionally dead.
+- **Minimalist control manual**, drawn in the middle of the screen while the overlay is
+  revealed: one line per stick/button with what it does in the *active* profile, so you never
+  have to leave the stream to remember the layout.
+- **Rear panel is now the mouse** in the desktop profile, including clicks — left on the left
+  half, right on the right half. Earlier builds refused to click from the rear panel on the
+  grounds that it is out of sight; in practice that left no way to click at all without covering
+  the picture with a thumb. A click only fires when the finger lifts within 300 ms *and* moved
+  less than 5 % of the panel, so a cursor drag never clicks by accident.
+- **Analog sticks in the desktop profile**: left stick is a fine cursor (with sub-pixel
+  accumulation, so slow nudges are not rounded away), right stick is the scroll wheel in whole
+  ±120 notches, D-pad types the arrow keys with hold-to-repeat, Cross/Circle are held left/right
+  mouse buttons, Triangle/Square are Enter/Backspace, L is precision mode (halves sensitivity),
+  R is a double-click, SELECT toggles the keyboard and START taps the Windows key.
+
+### Changed
+
+- **The overlay is on and revealed by default.** It used to default to off, which is why the
+  previous release looked unchanged on real hardware.
+- **Redesigned front-screen layout.** The old design put zones on all four edges *and* both
+  bottom corners, bracketing the picture and stealing the corners `FrontStickZones` needs. Zones
+  now live in two thin strips along the top and bottom plus two narrow slider rails, leaving the
+  entire middle of the 960×544 panel clear. Top strip: ESC, Tab, Win, Alt+Tab, Copy, Paste,
+  keyboard, settings. Bottom strip: Shift, Ctrl, Alt, Enter, Backspace, Ctrl+Alt+Del. Left rail
+  adjusts mouse sensitivity, right rail scrolls.
+- **The overlay no longer neutralizes the gamepad.** Touch ownership is arbitrated by
+  precedence on finger-down instead: the overlay claims a touch only when its zones are actually
+  live, and the stick zones take anything it did not claim. In the game profile L3/R3 behave
+  exactly as they do with the overlay off.
+- **Opacity now has five steps** (Ghost / Faint / Normal / Strong / Bold) instead of three, and
+  legacy stored values snap to the nearest new preset rather than resetting.
+- **The on-screen keyboard is translucent**, tied to the same opacity preference, so you can see
+  what you are typing into.
+- **Raised the adaptive bitrate ceiling** from 12 to 20 Mbps (and a first-run session now asks
+  for 12 instead of 8). 960×544 is a small frame, but it is the panel's *native* resolution, so
+  every encoder artefact lands on a real pixel with no downscale to hide it, and 12 Mbps left
+  visible mush in dark, high-motion scenes. This only raises the ceiling the measured estimate
+  may climb to; the lowering path is unchanged, so a weak link still ratchets straight back down.
+
+### Fixed
+
+- Turning the PC overlay on no longer kills L2/R2, L3/R3 and D-pad up/down.
+- The centre of the front screen is no longer contested: in the desktop profile it is deliberate
+  dead space (the rear panel is the pointer), and in the game profile it reaches the title.
+
 ## [0.4.1] - 2026-09-13
 
 ### Added

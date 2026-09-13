@@ -14,8 +14,17 @@ const STORE_DIR: &str = "ux0:data/opennow-vita";
 /// Never ask for less than this: below it the picture is unusable anyway, so a bad measurement
 /// should not be able to strand the client on a permanently terrible stream.
 pub const MIN_CEILING_MBPS: u32 = 5;
-pub const MAX_CEILING_MBPS: u32 = 12;
-pub const DEFAULT_CEILING_MBPS: u32 = 8;
+/// Upper bound the adaptive estimate is allowed to climb to.
+///
+/// Raised from 12 to 20 in v0.5.0. 960x544 is a small frame, but it is also the panel's *native*
+/// resolution, so every encoder artefact lands on a real pixel with no downscale to hide it -
+/// and 12 Mbps was leaving visible mush in dark, high-motion scenes on an Ultimate tier that has
+/// far more headroom than that. Nothing here forces a high bitrate: this is only the ceiling the
+/// measured estimate may reach, and the lowering path (see `note_stress`) is unchanged, so a
+/// weak link still ratchets straight back down.
+pub const MAX_CEILING_MBPS: u32 = 20;
+/// What a first-ever session asks for, before there is any measurement to go on.
+pub const DEFAULT_CEILING_MBPS: u32 = 12;
 
 /// Ignore the opening moments: the stream ramps up, so an early sample understates the link.
 const WARMUP: Duration = Duration::from_secs(5);
@@ -81,7 +90,8 @@ impl LinkMeter {
         // Only judge once the window is genuinely full, so a short session cannot report a
         // sustained rate it never sustained.
         if self.filled == WINDOW_SAMPLES {
-            let average = self.window.iter().map(|&v| v as u64).sum::<u64>() / WINDOW_SAMPLES as u64;
+            let average =
+                self.window.iter().map(|&v| v as u64).sum::<u64>() / WINDOW_SAMPLES as u64;
             self.peak_sustained_kbps = self.peak_sustained_kbps.max(average as u32);
         }
     }
