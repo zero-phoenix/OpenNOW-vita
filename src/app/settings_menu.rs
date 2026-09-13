@@ -1,7 +1,7 @@
-
 use crate::gfn::regions::StreamRegion;
 use crate::gfn::stream_prefs::{
-    AudioBoost, ColorDepth, GameLanguage, RearTouchMode, StickZones, StreamFps, TriggerIntensity,
+    AudioBoost, ColorDepth, GameLanguage, OverlayOpacity, OverlaySensitivity, RearTouchMode,
+    StickZones, StreamFps, TriggerIntensity,
 };
 use crate::i18n::I18n;
 use crate::input::AppCommand;
@@ -55,7 +55,7 @@ impl SettingsTab {
     pub fn row_count(self) -> usize {
         match self {
             Self::Stream => 5,
-            Self::Controls => 5,
+            Self::Controls => 8,
             Self::App => 2,
             Self::Account => 0,
         }
@@ -127,6 +127,21 @@ pub fn row_info(tab: SettingsTab, row: usize) -> Option<RowInfo> {
             desc_key: Some("settings-trigger-swap-desc"),
             kind: RowKind::Toggle(crate::gfn::stream_prefs::trigger_swap_enabled()),
         },
+        (SettingsTab::Controls, 5) => RowInfo {
+            label_key: "settings-pc-overlay-heading",
+            desc_key: Some("settings-pc-overlay-desc"),
+            kind: RowKind::Toggle(crate::gfn::stream_prefs::pc_overlay_enabled()),
+        },
+        (SettingsTab::Controls, 6) => RowInfo {
+            label_key: "settings-overlay-opacity-heading",
+            desc_key: Some("settings-overlay-opacity-desc"),
+            kind: RowKind::Choice,
+        },
+        (SettingsTab::Controls, 7) => RowInfo {
+            label_key: "settings-overlay-sensitivity-heading",
+            desc_key: Some("settings-overlay-sensitivity-desc"),
+            kind: RowKind::Choice,
+        },
         (SettingsTab::App, 0) => RowInfo {
             label_key: "settings-language-heading",
             desc_key: Some("settings-language-desc"),
@@ -152,6 +167,8 @@ pub fn option_count(tab: SettingsTab, row: usize, regions_len: usize) -> usize {
             (SettingsTab::Controls, 1) => StickZones::ALL.len(),
             (SettingsTab::Controls, 2) => TriggerIntensity::ALL.len(),
             (SettingsTab::App, 0) => Locale::ALL.len(),
+            (SettingsTab::Controls, 6) => OverlayOpacity::ALL.len(),
+            (SettingsTab::Controls, 7) => OverlaySensitivity::ALL.len(),
             _ => 0,
         },
         Some(RowKind::Region) => 1 + regions_len,
@@ -197,6 +214,14 @@ pub fn current_option_index(
         (SettingsTab::App, 0) => Locale::ALL
             .iter()
             .position(|&c| c == current_locale)
+            .unwrap_or(0),
+        (SettingsTab::Controls, 6) => OverlayOpacity::ALL
+            .iter()
+            .position(|&c| c == crate::gfn::stream_prefs::overlay_opacity())
+            .unwrap_or(0),
+        (SettingsTab::Controls, 7) => OverlaySensitivity::ALL
+            .iter()
+            .position(|&c| c == crate::gfn::stream_prefs::overlay_sensitivity())
             .unwrap_or(0),
         (SettingsTab::Stream, 0) => {
             let selected = crate::gfn::stream_prefs::region();
@@ -254,6 +279,14 @@ pub fn option_label(
             .get(index)
             .map(|c| c.label().to_owned())
             .unwrap_or_default(),
+        (SettingsTab::Controls, 6) => OverlayOpacity::ALL
+            .get(index)
+            .map(|c| i18n.text(c.label_key()).to_string())
+            .unwrap_or_default(),
+        (SettingsTab::Controls, 7) => OverlaySensitivity::ALL
+            .get(index)
+            .map(|c| i18n.text(c.label_key()).to_string())
+            .unwrap_or_default(),
         (SettingsTab::Stream, 0) => {
             if index == 0 {
                 i18n.text("settings-region-auto").to_string()
@@ -293,8 +326,14 @@ pub fn command_for(
             .get(index)
             .copied()
             .map(AppCommand::SetGameLanguage),
-        (SettingsTab::Stream, 2) => StreamFps::ALL.get(index).copied().map(AppCommand::SetStreamFps),
-        (SettingsTab::Stream, 3) => AudioBoost::ALL.get(index).copied().map(AppCommand::SetAudioBoost),
+        (SettingsTab::Stream, 2) => StreamFps::ALL
+            .get(index)
+            .copied()
+            .map(AppCommand::SetStreamFps),
+        (SettingsTab::Stream, 3) => AudioBoost::ALL
+            .get(index)
+            .copied()
+            .map(AppCommand::SetAudioBoost),
         (SettingsTab::Stream, 4) => ColorDepth::ALL
             .get(index)
             .copied()
@@ -303,7 +342,10 @@ pub fn command_for(
             .get(index)
             .copied()
             .map(AppCommand::SetRearTouchMode),
-        (SettingsTab::Controls, 1) => StickZones::ALL.get(index).copied().map(AppCommand::SetStickZones),
+        (SettingsTab::Controls, 1) => StickZones::ALL
+            .get(index)
+            .copied()
+            .map(AppCommand::SetStickZones),
         (SettingsTab::Controls, 2) => TriggerIntensity::ALL
             .get(index)
             .copied()
@@ -312,11 +354,22 @@ pub fn command_for(
         (SettingsTab::App, 1) => Some(AppCommand::ToggleSessionTimer),
         (SettingsTab::Controls, 3) => Some(AppCommand::ToggleGameProfile),
         (SettingsTab::Controls, 4) => Some(AppCommand::ToggleTriggerSwap),
+        (SettingsTab::Controls, 5) => Some(AppCommand::TogglePcOverlay),
+        (SettingsTab::Controls, 6) => OverlayOpacity::ALL
+            .get(index)
+            .copied()
+            .map(AppCommand::SetOverlayOpacity),
+        (SettingsTab::Controls, 7) => OverlaySensitivity::ALL
+            .get(index)
+            .copied()
+            .map(AppCommand::SetOverlaySensitivity),
         (SettingsTab::Stream, 0) => {
             if index == 0 {
                 Some(AppCommand::SetRegion(String::new()))
             } else {
-                regions.get(index - 1).map(|region| AppCommand::SetRegion(region.url.clone()))
+                regions
+                    .get(index - 1)
+                    .map(|region| AppCommand::SetRegion(region.url.clone()))
             }
         }
         _ => None,

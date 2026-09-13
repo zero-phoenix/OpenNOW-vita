@@ -7,9 +7,7 @@ use crate::gfn::input_protocol::{
 };
 use crate::gfn::signaling::IceCandidate;
 use crate::streaming::audio::AudioPacket;
-use crate::streaming::video::{
-    DecodedFrame, DecoderConfig, DirectVideoOutput, VideoDecodeWorker,
-};
+use crate::streaming::video::{DecodedFrame, DecoderConfig, DirectVideoOutput, VideoDecodeWorker};
 use anyhow::{Context, Result, bail};
 use bytes::BytesMut;
 use rtc::interceptor::{NackGeneratorBuilder, NackResponderBuilder, Registry};
@@ -53,7 +51,6 @@ const QUEUE_FULL_RECOVERY_THRESHOLD: f32 = 5.0;
 const VIDEO_STALL_PLI: Duration = Duration::from_secs(4);
 const VIDEO_STALL_FAIL: Duration = Duration::from_secs(8);
 
-
 /// The resolution NVIDIA actually streams at, per the session response.
 fn stream_dimensions(session: &SessionInfo) -> (u32, u32) {
     session
@@ -82,7 +79,10 @@ pub enum PeerEvent {
     Disconnected(String),
     Error(String),
     // session time warning from control_channel
-    TimeWarning { code: u32, seconds_left: u32 },
+    TimeWarning {
+        code: u32,
+        seconds_left: u32,
+    },
 }
 
 enum PeerCommand {
@@ -174,8 +174,9 @@ impl PeerEngine {
                     thread_keyframe_requests,
                 ));
                 if let Err(error) = result {
-                    let _ = thread_events
-                        .send(PeerEvent::Disconnected(format!("peer loop ended: {error:#}")));
+                    let _ = thread_events.send(PeerEvent::Disconnected(format!(
+                        "peer loop ended: {error:#}"
+                    )));
                 }
             })
             .context("failed to spawn peer thread")?;
@@ -249,7 +250,6 @@ impl PeerEngine {
     pub fn video_frame(&self) -> Option<(u64, DecodedFrame)> {
         *self.latest_frame.lock().ok()?
     }
-
 }
 
 impl Drop for PeerEngine {
@@ -354,7 +354,10 @@ async fn run_peer(
     let sanitized_offer = crate::gfn::sdp::sanitize_offer(&setup.offer_sdp, &setup.server_ip);
     let ri_caps = crate::gfn::sdp::parse_ri_input_capabilities(&setup.offer_sdp);
     let _ = std::fs::write("ux0:data/opennow-vita/offer-raw.sdp", &setup.offer_sdp);
-    let _ = std::fs::write("ux0:data/opennow-vita/offer-sanitized.sdp", &sanitized_offer);
+    let _ = std::fs::write(
+        "ux0:data/opennow-vita/offer-sanitized.sdp",
+        &sanitized_offer,
+    );
     let video_payload_types = crate::gfn::sdp::h264_payload_types(&sanitized_offer);
     let audio_payload_types = crate::gfn::sdp::opus_payload_types(&sanitized_offer);
 
@@ -513,24 +516,17 @@ async fn run_peer(
     pc.set_local_description(answer.clone())
         .context("failed to set local description")?;
     let mut stream_settings = crate::gfn::cloudmatch::StreamSettings::for_vita();
-    let munged_answer_sdp = crate::gfn::sdp::munge_answer_sdp(
-        &answer.sdp,
-        stream_settings.max_bitrate_mbps * 1000,
-    );
+    let munged_answer_sdp =
+        crate::gfn::sdp::munge_answer_sdp(&answer.sdp, stream_settings.max_bitrate_mbps * 1000);
     let mut saved_answer_sdp = munged_answer_sdp.clone();
     let answer_sdp = answer.sdp.clone();
     let _ = std::fs::write("ux0:data/opennow-vita/answer.sdp", &saved_answer_sdp);
-    let nvst_sdp = crate::gfn::sdp::build_nvst_sdp_from_answer(
-        &answer_sdp,
-        &stream_settings,
-        &ri_caps,
-    );
+    let nvst_sdp =
+        crate::gfn::sdp::build_nvst_sdp_from_answer(&answer_sdp, &stream_settings, &ri_caps);
     let _ = std::fs::write("ux0:data/opennow-vita/nvst.sdp", &nvst_sdp);
     log_stream!(
         "session profile {}x{} @ {}fps ref_frames={} bitrate_ceiling={}Mbps peer_loop=reorder_grace_drain decoder=avcdec_auto present=latest",
-        stream_settings
-            .dimensions()
-            .0,
+        stream_settings.dimensions().0,
         stream_settings.dimensions().1,
         stream_settings.fps,
         crate::streaming::video::AVCDEC_NUM_REF_FRAMES,
@@ -688,16 +684,17 @@ async fn run_peer(
                 RTCPeerConnectionEvent::OnDataChannel(RTCDataChannelEvent::OnOpen(channel_id)) => {
                     if Some(channel_id) == input_channel_id {
                         input_ready = true;
-                        let _ = event_tx
-                            .send(PeerEvent::Status("Canal de input abierto".to_owned()));
+                        let _ =
+                            event_tx.send(PeerEvent::Status("Canal de input abierto".to_owned()));
                     } else if Some(channel_id) == partial_input_channel_id {
                         partial_input_ready = true;
-                        let _ = event_tx
-                            .send(PeerEvent::Status("Canal parcial abierto".to_owned()));
+                        let _ =
+                            event_tx.send(PeerEvent::Status("Canal parcial abierto".to_owned()));
                     } else if let Some(channel) = pc.data_channel(channel_id) {
                         if channel.label() == "control_channel" {
                             control_channel_id = Some(channel_id);
-                            let _ = event_tx.send(PeerEvent::Status("Control channel abierto".to_owned()));
+                            let _ = event_tx
+                                .send(PeerEvent::Status("Control channel abierto".to_owned()));
                         }
                     }
                 }
@@ -710,10 +707,15 @@ async fn run_peer(
                 if Some(*channel_id) == control_channel_id {
                     if let Ok(text) = std::str::from_utf8(&dc_message.data) {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(text) {
-                            if val.get("type").and_then(|v| v.as_str()) == Some("timerNotification") {
-                                let code = val.get("code").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                                let seconds_left = val.get("secondsLeft").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                                let _ = event_tx.send(PeerEvent::TimeWarning { code, seconds_left });
+                            if val.get("type").and_then(|v| v.as_str()) == Some("timerNotification")
+                            {
+                                let code =
+                                    val.get("code").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                                let seconds_left =
+                                    val.get("secondsLeft").and_then(|v| v.as_u64()).unwrap_or(0)
+                                        as u32;
+                                let _ =
+                                    event_tx.send(PeerEvent::TimeWarning { code, seconds_left });
                             }
                         }
                     }
@@ -786,9 +788,7 @@ async fn run_peer(
         }
 
         let now_wall = Instant::now();
-        let mut timeout = pc
-            .poll_timeout()
-            .unwrap_or_else(|| now_wall + IDLE_TIMEOUT);
+        let mut timeout = pc.poll_timeout().unwrap_or_else(|| now_wall + IDLE_TIMEOUT);
         if let Some(deadline_us) = video_rtp.reorder_deadline_us() {
             let elapsed_us = session_clock.elapsed().as_micros() as u64;
             let remaining_us = deadline_us.saturating_sub(elapsed_us);
@@ -1196,6 +1196,9 @@ async fn run_peer(
                     }
                     MouseEvent::Button { button, pressed } => {
                         input_encoder.encode_mouse_button(button, pressed, timestamp_us)
+                    }
+                    MouseEvent::WheelBy { delta } => {
+                        input_encoder.encode_mouse_wheel(delta, timestamp_us)
                     }
                 };
                 let _ = channel.send(BytesMut::from(&packet[..]));

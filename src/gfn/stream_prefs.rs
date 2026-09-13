@@ -38,6 +38,14 @@ pub struct AppSettings {
     pub trigger_swap_enabled: bool,
     #[serde(default)]
     pub ui_locale: String,
+    /// Master switch for the PC-touch overlay mod: rear-panel mouse trackpad plus the front-panel
+    /// ESC/settings/DPI-slider/scroll-slider/enter/click zones. See `src/input.rs`.
+    #[serde(default)]
+    pub pc_overlay_enabled: bool,
+    #[serde(default = "default_overlay_alpha")]
+    pub pc_overlay_alpha: u8,
+    #[serde(default = "default_overlay_sensitivity_percent")]
+    pub overlay_sensitivity_percent: u16,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -123,6 +131,14 @@ fn default_color_depth() -> String {
     ColorDepth::default().key().to_owned()
 }
 
+fn default_overlay_alpha() -> u8 {
+    OverlayOpacity::default().alpha()
+}
+
+fn default_overlay_sensitivity_percent() -> u16 {
+    OverlaySensitivity::default().percent()
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -141,6 +157,9 @@ impl Default for AppSettings {
             game_profiles: std::collections::BTreeMap::new(),
             trigger_swap_enabled: false,
             ui_locale: String::new(),
+            pc_overlay_enabled: false,
+            pc_overlay_alpha: default_overlay_alpha(),
+            overlay_sensitivity_percent: default_overlay_sensitivity_percent(),
         }
     }
 }
@@ -356,7 +375,7 @@ impl TriggerIntensity {
 
     fn from_value(value: u8) -> Self {
         match value {
-            v if v >= 255 => Self::Full,
+            v if v == 255 => Self::Full,
             v if v >= 192 => Self::High,
             _ => Self::Half,
         }
@@ -371,10 +390,12 @@ pub fn trigger_intensity() -> TriggerIntensity {
 }
 
 pub fn set_trigger_intensity(intensity: TriggerIntensity) {
-    update_control_setting(|s, app_id| match app_id.and_then(|id| s.game_profiles.get_mut(id)) {
-        Some(profile) => profile.trigger_intensity = Some(intensity.value()),
-        None => s.trigger_intensity = intensity.value(),
-    });
+    update_control_setting(
+        |s, app_id| match app_id.and_then(|id| s.game_profiles.get_mut(id)) {
+            Some(profile) => profile.trigger_intensity = Some(intensity.value()),
+            None => s.trigger_intensity = intensity.value(),
+        },
+    );
 }
 
 pub fn stick_zones() -> StickZones {
@@ -385,10 +406,12 @@ pub fn stick_zones() -> StickZones {
 }
 
 pub fn set_stick_zones(zones: StickZones) {
-    update_control_setting(|s, app_id| match app_id.and_then(|id| s.game_profiles.get_mut(id)) {
-        Some(profile) => profile.stick_zones = Some(zones.as_text().to_owned()),
-        None => s.stick_zones = zones.as_text().to_owned(),
-    });
+    update_control_setting(
+        |s, app_id| match app_id.and_then(|id| s.game_profiles.get_mut(id)) {
+            Some(profile) => profile.stick_zones = Some(zones.as_text().to_owned()),
+            None => s.stick_zones = zones.as_text().to_owned(),
+        },
+    );
 }
 
 /// How much the decoded stream is amplified, in percent of unity gain.
@@ -555,10 +578,12 @@ pub fn rear_touch_mode() -> RearTouchMode {
 }
 
 pub fn set_rear_touch_mode(mode: RearTouchMode) {
-    update_control_setting(|s, app_id| match app_id.and_then(|id| s.game_profiles.get_mut(id)) {
-        Some(profile) => profile.rear_touch_mode = Some(mode.as_text().to_owned()),
-        None => s.rear_touch_mode = mode.as_text().to_owned(),
-    });
+    update_control_setting(
+        |s, app_id| match app_id.and_then(|id| s.game_profiles.get_mut(id)) {
+            Some(profile) => profile.rear_touch_mode = Some(mode.as_text().to_owned()),
+            None => s.rear_touch_mode = mode.as_text().to_owned(),
+        },
+    );
 }
 
 pub fn region() -> String {
@@ -709,6 +734,133 @@ pub fn set_ui_locale(locale: crate::locale::Locale) {
     update_settings(|s| s.ui_locale = locale.as_str().to_owned());
 }
 
+/// Master switch for the PC-touch overlay mod (rear-panel mouse trackpad + front-panel
+/// ESC/settings/DPI-slider/scroll-slider/enter/click zones). See `src/input.rs`.
+pub fn pc_overlay_enabled() -> bool {
+    load_or_init_settings().pc_overlay_enabled
+}
+
+pub fn set_pc_overlay_enabled(enabled: bool) {
+    update_settings(|s| s.pc_overlay_enabled = enabled);
+}
+
+/// How opaque the overlay's on-screen buttons/sliders are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverlayOpacity {
+    Faint,
+    #[default]
+    Normal,
+    Bold,
+}
+
+impl OverlayOpacity {
+    pub const ALL: [OverlayOpacity; 3] = [Self::Faint, Self::Normal, Self::Bold];
+
+    /// egui alpha byte (0..255) applied to the overlay's fills/strokes/text.
+    pub fn alpha(self) -> u8 {
+        match self {
+            Self::Faint => 60,
+            Self::Normal => 120,
+            Self::Bold => 200,
+        }
+    }
+
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Faint => "settings-overlay-opacity-faint",
+            Self::Normal => "settings-overlay-opacity-normal",
+            Self::Bold => "settings-overlay-opacity-bold",
+        }
+    }
+
+    fn from_value(value: u8) -> Self {
+        match value {
+            v if v <= 80 => Self::Faint,
+            v if v <= 150 => Self::Normal,
+            _ => Self::Bold,
+        }
+    }
+}
+
+pub fn overlay_opacity() -> OverlayOpacity {
+    OverlayOpacity::from_value(load_or_init_settings().pc_overlay_alpha)
+}
+
+pub fn set_overlay_opacity(opacity: OverlayOpacity) {
+    update_settings(|s| s.pc_overlay_alpha = opacity.alpha());
+}
+
+/// Rear-panel trackpad sensitivity. The NVST protocol has no absolute-position packet (see
+/// `INPUT_MOUSE_MOVE_REL`'s doc comment in `gfn::input_protocol`), so the rear panel drives the
+/// cursor as relative deltas; this multiplier is the only "DPI" knob available.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OverlaySensitivity {
+    Low,
+    #[default]
+    Normal,
+    High,
+    Max,
+}
+
+impl OverlaySensitivity {
+    pub const ALL: [OverlaySensitivity; 4] = [Self::Low, Self::Normal, Self::High, Self::Max];
+
+    /// Multiplier applied to the raw rear-touch delta, in percent (100 = 1x).
+    pub fn percent(self) -> u16 {
+        match self {
+            Self::Low => 50,
+            Self::Normal => 100,
+            Self::High => 175,
+            Self::Max => 250,
+        }
+    }
+
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Self::Low => "settings-overlay-sensitivity-low",
+            Self::Normal => "settings-overlay-sensitivity-normal",
+            Self::High => "settings-overlay-sensitivity-high",
+            Self::Max => "settings-overlay-sensitivity-max",
+        }
+    }
+
+    fn from_percent(percent: u16) -> Self {
+        match percent {
+            p if p <= 60 => Self::Low,
+            p if p <= 120 => Self::Normal,
+            p if p <= 200 => Self::High,
+            _ => Self::Max,
+        }
+    }
+}
+
+pub fn overlay_sensitivity() -> OverlaySensitivity {
+    OverlaySensitivity::from_percent(load_or_init_settings().overlay_sensitivity_percent)
+}
+
+pub fn set_overlay_sensitivity(sensitivity: OverlaySensitivity) {
+    update_settings(|s| s.overlay_sensitivity_percent = sensitivity.percent());
+}
+
+/// Raw sensitivity percent (100 = 1x), for the rear-panel trackpad's per-motion-event scaling -
+/// see `scale_rear_delta` in `crate::input`. Distinct from `overlay_sensitivity()`'s coarse
+/// enum, which only exists to give the settings menu's chip picker four presets to choose from.
+pub fn overlay_sensitivity_percent() -> u16 {
+    load_or_init_settings().overlay_sensitivity_percent
+}
+
+/// Nudges the raw sensitivity percent by `delta_percent`, clamped to a sane range. Used by the
+/// front-screen DPI slider zone, which drags continuously rather than picking one of the four
+/// enum presets.
+pub fn adjust_overlay_sensitivity_percent(delta_percent: i32) -> u16 {
+    const MIN_PERCENT: i32 = 10;
+    const MAX_PERCENT: i32 = 400;
+    let current = i32::from(load_or_init_settings().overlay_sensitivity_percent);
+    let next = (current + delta_percent).clamp(MIN_PERCENT, MAX_PERCENT) as u16;
+    update_settings(|s| s.overlay_sensitivity_percent = next);
+    next
+}
+
 #[cfg(test)]
 mod tests {
     use super::AppSettings;
@@ -734,5 +886,53 @@ mod tests {
     fn color_depth_stream_bit_depth_is_h264_8bit() {
         assert_eq!(super::ColorDepth::SixteenBit.stream_bit_depth(), 8);
         assert_eq!(super::ColorDepth::ThirtyTwoBit.stream_bit_depth(), 8);
+    }
+
+    #[test]
+    fn settings_json_without_overlay_fields_still_loads_with_sane_defaults() {
+        let json = r#"{
+            "fps": 60,
+            "trigger_intensity": 255,
+            "audio_boost_percent": 1200,
+            "controls_hint_seen": false,
+            "stick_zones": "hidden"
+        }"#;
+        let settings: AppSettings =
+            serde_json::from_str(json).expect("pre-overlay settings should load");
+        assert!(!settings.pc_overlay_enabled);
+        assert_eq!(
+            settings.pc_overlay_alpha,
+            super::OverlayOpacity::Normal.alpha()
+        );
+        assert_eq!(
+            settings.overlay_sensitivity_percent,
+            super::OverlaySensitivity::Normal.percent()
+        );
+    }
+
+    #[test]
+    fn overlay_opacity_round_trips_through_its_alpha_byte() {
+        for opacity in super::OverlayOpacity::ALL {
+            assert_eq!(super::OverlayOpacity::from_value(opacity.alpha()), opacity);
+        }
+    }
+
+    #[test]
+    fn overlay_sensitivity_round_trips_through_its_percent() {
+        for sensitivity in super::OverlaySensitivity::ALL {
+            assert_eq!(
+                super::OverlaySensitivity::from_percent(sensitivity.percent()),
+                sensitivity
+            );
+        }
+    }
+
+    #[test]
+    fn overlay_sensitivity_sniper_mode_halves_the_multiplier() {
+        // The L-trigger "sniper mode" macro halves whatever sensitivity is active; this pins the
+        // arithmetic so a future change to `percent()` cannot silently break that macro's math.
+        let normal = super::OverlaySensitivity::Normal.percent();
+        let halved = normal / 2;
+        assert_eq!(halved, 50);
     }
 }

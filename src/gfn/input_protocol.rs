@@ -12,6 +12,13 @@ const INPUT_MOUSE_BUTTON_UP: u32 = 9;
 /// Relative movement. The protocol has no absolute-position packet, so a touchscreen has to be
 /// driven as a trackpad - see `input::stream_pointer_events`.
 const INPUT_MOUSE_MOVE_REL: u32 = 7;
+/// Mouse wheel. Not previously implemented here - confirmed (not guessed) against
+/// `clarkarch/nextclient`'s `gfn_input_protocol.dart` `encodeMouseWheel`, a sibling client that
+/// speaks this exact NVST input-channel protocol: same 22-byte layout as `INPUT_MOUSE_MOVE_REL`
+/// (`[type][horiz i16 BE][vert i16 BE][reserved][ts]`) but with horiz always zero and vert
+/// carrying the wheel delta, framed with the *single*-input wrapper (`0x22`, no length prefix)
+/// rather than the length-prefixed one movement uses.
+const INPUT_MOUSE_WHEEL: u32 = 10;
 
 /// Beyond this the server treats the delta as a glitch; the reference client clamps rather than
 /// letting a bad reading fling the cursor across the screen.
@@ -101,14 +108,12 @@ pub const KEY_LEFT_WIN: KeyStroke = KeyStroke::new(0x5B, 0x5B);
 pub const KEY_MENU: KeyStroke = KeyStroke::new(0x5D, 0x5D);
 
 /// Scancodes for the digits `1`..`9`, `0`, in that order - the top number row.
-const DIGIT_SCANCODES: [u16; 10] = [
-    0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
-];
+const DIGIT_SCANCODES: [u16; 10] = [0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B];
 
 /// Scancodes for `a`..`z`, which are famously not in alphabetical order on a PC keyboard.
 const LETTER_SCANCODES: [u16; 26] = [
-    0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, 0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18,
-    0x19, 0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, 0x15, 0x2C,
+    0x1E, 0x30, 0x2E, 0x20, 0x12, 0x21, 0x22, 0x23, 0x17, 0x24, 0x25, 0x26, 0x32, 0x31, 0x18, 0x19,
+    0x10, 0x13, 0x1F, 0x14, 0x16, 0x2F, 0x11, 0x2D, 0x15, 0x2C,
 ];
 
 /// The characters a US layout reaches with Shift, and the unshifted key they sit on.
@@ -223,8 +228,19 @@ pub enum MouseButton {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseEvent {
     /// Relative movement in host pixels. There is no absolute-position packet in this protocol.
-    MoveBy { dx: i16, dy: i16 },
-    Button { button: MouseButton, pressed: bool },
+    MoveBy {
+        dx: i16,
+        dy: i16,
+    },
+    Button {
+        button: MouseButton,
+        pressed: bool,
+    },
+    /// Vertical wheel movement. Positive is up/away from the user (scroll up), matching the
+    /// standard Windows `WHEEL_DELTA` convention of ±120 per notch.
+    WheelBy {
+        delta: i16,
+    },
 }
 
 pub struct InputEncoder {
@@ -325,6 +341,21 @@ impl InputEncoder {
         self.wrap_legacy_input(timestamp_us, &payload)
     }
 
+    /// Vertical wheel movement, `delta` in the standard ±120-per-notch convention. Same 22-byte
+    /// layout as `encode_mouse_move` (horizontal field always zero) but framed with the
+    /// single-input wrapper like buttons/keys - see the `INPUT_MOUSE_WHEEL` doc comment for the
+    /// reference this was confirmed against.
+    pub fn encode_mouse_wheel(&self, delta: i16, timestamp_us: u64) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(22);
+        payload.extend_from_slice(&INPUT_MOUSE_WHEEL.to_le_bytes());
+        payload.extend_from_slice(&0i16.to_be_bytes());
+        payload.extend_from_slice(&delta.to_be_bytes());
+        payload.extend_from_slice(&0u16.to_be_bytes());
+        payload.extend_from_slice(&0u32.to_be_bytes());
+        payload.extend_from_slice(&timestamp_us.to_be_bytes());
+        self.wrap_single_input(timestamp_us, &payload)
+    }
+
     /// Mouse button press/release. Unlike movement this is framed with the single-input wrapper,
     /// which carries no length prefix - an asymmetry in the protocol, not an oversight here.
     pub fn encode_mouse_button(
@@ -351,7 +382,11 @@ impl InputEncoder {
     /// scancode; the host wants both. Framed with the single-input wrapper, like mouse buttons.
     pub fn encode_key(&self, key: KeyStroke, pressed: bool, timestamp_us: u64) -> Vec<u8> {
         let mut payload = Vec::with_capacity(18);
-        let packet_type = if pressed { INPUT_KEY_DOWN } else { INPUT_KEY_UP };
+        let packet_type = if pressed {
+            INPUT_KEY_DOWN
+        } else {
+            INPUT_KEY_UP
+        };
         payload.extend_from_slice(&packet_type.to_le_bytes());
         // Type is little-endian, the three fields after it are big-endian - the same split the
         // mouse-move packet has.
@@ -437,7 +472,11 @@ mod tests {
         assert_eq!(&payload[0..4], &3u32.to_le_bytes(), "type is little-endian");
         assert_eq!((payload[4], payload[5]), (0, 0x41), "keycode is big-endian");
         assert_eq!((payload[6], payload[7]), (0, 0), "no modifiers");
-        assert_eq!((payload[8], payload[9]), (0, 0x1E), "scancode is big-endian");
+        assert_eq!(
+            (payload[8], payload[9]),
+            (0, 0x1E),
+            "scancode is big-endian"
+        );
         assert_eq!(&payload[10..18], &0x0102030405060708u64.to_be_bytes());
     }
 
@@ -448,14 +487,89 @@ mod tests {
         assert_eq!(&payload[0..4], &4u32.to_le_bytes());
     }
 
+    /// The wheel packet was ported from `clarkarch/nextclient`'s `encodeMouseWheel` - this test
+    /// pins the exact byte layout that reference encodes so any drift is caught.
+    #[test]
+    fn wheel_payload_matches_the_reference_encoding() {
+        let encoder = InputEncoder::default(); // v2: no wrapper, bare payload
+        let payload = encoder.encode_mouse_wheel(-120, 0x0102030405060708);
+        assert_eq!(payload.len(), 22);
+        assert_eq!(
+            &payload[0..4],
+            &10u32.to_le_bytes(),
+            "type 10 is INPUT_MOUSE_WHEEL"
+        );
+        assert_eq!(
+            &payload[4..6],
+            &0i16.to_be_bytes(),
+            "horizontal field is always zero"
+        );
+        assert_eq!(
+            &payload[6..8],
+            &(-120i16).to_be_bytes(),
+            "vertical field carries the delta"
+        );
+        assert_eq!(&payload[8..10], &0u16.to_be_bytes());
+        assert_eq!(&payload[10..14], &0u32.to_be_bytes());
+        assert_eq!(&payload[14..22], &0x0102030405060708u64.to_be_bytes());
+    }
+
+    #[test]
+    fn wheel_scrolling_up_is_a_positive_delta() {
+        let encoder = InputEncoder::default();
+        let up = encoder.encode_mouse_wheel(120, 1);
+        let down = encoder.encode_mouse_wheel(-120, 1);
+        assert_eq!(&up[6..8], &120i16.to_be_bytes());
+        assert_eq!(&down[6..8], &(-120i16).to_be_bytes());
+    }
+
+    #[test]
+    fn wheel_v3_uses_the_single_input_wrapper_not_the_length_prefixed_one() {
+        let payload = v3().encode_mouse_wheel(120, 42);
+        // 0x22 (WRAPPER_SINGLE_INPUT) right after the version marker + timestamp, with no
+        // 2-byte length field - unlike `encode_mouse_move`, which uses 0x21 plus a length.
+        assert_eq!(payload[0], WRAPPER_VERSION_MARKER);
+        assert_eq!(payload[9], WRAPPER_SINGLE_INPUT);
+    }
+
     #[test]
     fn special_key_constants_are_all_distinct() {
         let keys = [
-            KEY_ESCAPE, KEY_ENTER, KEY_TAB, KEY_BACKSPACE, KEY_SPACE, KEY_LEFT_SHIFT,
-            KEY_LEFT_CTRL, KEY_LEFT_ALT, KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7,
-            KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_F12, KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN,
-            KEY_HOME, KEY_END, KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_DELETE, KEY_INSERT, KEY_CAPS_LOCK,
-            KEY_RIGHT_CTRL, KEY_RIGHT_ALT, KEY_LEFT_WIN, KEY_MENU,
+            KEY_ESCAPE,
+            KEY_ENTER,
+            KEY_TAB,
+            KEY_BACKSPACE,
+            KEY_SPACE,
+            KEY_LEFT_SHIFT,
+            KEY_LEFT_CTRL,
+            KEY_LEFT_ALT,
+            KEY_F1,
+            KEY_F2,
+            KEY_F3,
+            KEY_F4,
+            KEY_F5,
+            KEY_F6,
+            KEY_F7,
+            KEY_F8,
+            KEY_F9,
+            KEY_F10,
+            KEY_F11,
+            KEY_F12,
+            KEY_LEFT,
+            KEY_RIGHT,
+            KEY_UP,
+            KEY_DOWN,
+            KEY_HOME,
+            KEY_END,
+            KEY_PAGE_UP,
+            KEY_PAGE_DOWN,
+            KEY_DELETE,
+            KEY_INSERT,
+            KEY_CAPS_LOCK,
+            KEY_RIGHT_CTRL,
+            KEY_RIGHT_ALT,
+            KEY_LEFT_WIN,
+            KEY_MENU,
         ];
         for (i, a) in keys.iter().enumerate() {
             for b in &keys[i + 1..] {
@@ -526,7 +640,10 @@ mod tests {
     #[test]
     fn unshifted_punctuation_carries_no_modifier() {
         let period = key_for_char('.').expect("'.' should map");
-        assert_eq!((period.keycode, period.scancode, period.modifiers), (0xBE, 0x34, 0));
+        assert_eq!(
+            (period.keycode, period.scancode, period.modifiers),
+            (0xBE, 0x34, 0)
+        );
     }
 
     #[test]
@@ -569,7 +686,8 @@ mod tests {
             right_stick_y: -2000,
             timestamp_us: 0x0102030405060708,
         };
-        let payload = encoder.encode_gamepad_state_partially_reliable(GAMEPAD_BITMAP_PRIMARY, input, 42);
+        let payload =
+            encoder.encode_gamepad_state_partially_reliable(GAMEPAD_BITMAP_PRIMARY, input, 42);
         assert_eq!(payload.len(), 54);
         assert_eq!(payload[0], WRAPPER_VERSION_MARKER); // 0x23
         assert_eq!(&payload[1..9], &0x0102030405060708u64.to_be_bytes());

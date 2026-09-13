@@ -75,8 +75,12 @@ pub enum CatalogSort {
 }
 
 impl CatalogSort {
-    pub const ALL: [CatalogSort; 4] =
-        [Self::LastPlayed, Self::Relevance, Self::TitleAsc, Self::TitleDesc];
+    pub const ALL: [CatalogSort; 4] = [
+        Self::LastPlayed,
+        Self::Relevance,
+        Self::TitleAsc,
+        Self::TitleDesc,
+    ];
 
     /// Fluent message id for this option's label in the sort dropdown.
     pub fn label_key(self) -> &'static str {
@@ -222,10 +226,7 @@ fn filter_indices_with_favorites(
 /// Which band of the browse list a game belongs to: starred, played recently, everything else.
 ///
 /// `sort_by_key` is stable, so within a band the order the chosen sort produced survives.
-fn group_rank(
-    game: &GameSummary,
-    favorites: &std::collections::BTreeSet<String>,
-) -> u8 {
+fn group_rank(game: &GameSummary, favorites: &std::collections::BTreeSet<String>) -> u8 {
     if favorites.contains(&game.app_id) {
         0
     } else if game.last_played.is_some() {
@@ -273,14 +274,14 @@ fn sorted_indices(games: &[GameSummary], query: &str, sort: CatalogSort) -> Vec<
             indices.sort_unstable_by(|&a, &b| games[b].search_key.cmp(&games[a].search_key))
         }
         CatalogSort::LastPlayed => {
-            indices.sort_by(|&a, &b| {
-                match (&games[a].last_played, &games[b].last_played) {
+            indices.sort_by(
+                |&a, &b| match (&games[a].last_played, &games[b].last_played) {
                     (Some(x), Some(y)) => y.cmp(x),
                     (Some(_), None) => std::cmp::Ordering::Less,
                     (None, Some(_)) => std::cmp::Ordering::Greater,
                     (None, None) => std::cmp::Ordering::Equal,
-                }
-            })
+                },
+            )
         }
     }
     indices
@@ -682,7 +683,9 @@ impl App {
                 crate::gfn::stream_prefs::set_rear_touch_mode(mode);
                 if mode == crate::gfn::stream_prefs::RearTouchMode::Quadrant {
                     // turn off front L3/R3 so they dont fight with rear panel
-                    crate::gfn::stream_prefs::set_stick_zones(crate::gfn::stream_prefs::StickZones::Off);
+                    crate::gfn::stream_prefs::set_stick_zones(
+                        crate::gfn::stream_prefs::StickZones::Off,
+                    );
                 }
                 current_state
             }
@@ -690,7 +693,9 @@ impl App {
                 crate::gfn::stream_prefs::set_stick_zones(zones);
                 if zones != crate::gfn::stream_prefs::StickZones::Off {
                     // same deal but reverse, drop rear back to 2 zones
-                    crate::gfn::stream_prefs::set_rear_touch_mode(crate::gfn::stream_prefs::RearTouchMode::Halves);
+                    crate::gfn::stream_prefs::set_rear_touch_mode(
+                        crate::gfn::stream_prefs::RearTouchMode::Halves,
+                    );
                 }
                 current_state
             }
@@ -699,7 +704,11 @@ impl App {
                 let pinned = crate::gfn::stream_prefs::region();
                 crate::log_info!(
                     "Region set to {}",
-                    if pinned.is_empty() { "automatic" } else { &pinned }
+                    if pinned.is_empty() {
+                        "automatic"
+                    } else {
+                        &pinned
+                    }
                 );
                 self.status_note = Some(if pinned.is_empty() {
                     self.tr("settings-region-note-auto")
@@ -803,7 +812,9 @@ impl App {
             AppCommand::ChooseSettingsOption(row, option) => {
                 self.settings_focus = row;
                 self.settings_expanded = None;
-                if let Some(cmd) = settings_menu::command_for(self.settings_tab, row, option, &self.regions) {
+                if let Some(cmd) =
+                    settings_menu::command_for(self.settings_tab, row, option, &self.regions)
+                {
                     self.state = current_state;
                     return Box::pin(self.handle_command(cmd)).await;
                 }
@@ -850,15 +861,26 @@ impl App {
                 self.toolbar_expanded = !self.toolbar_expanded;
                 current_state
             }
-            AppCommand::RightClick => {
-                current_state
-            }
+            AppCommand::RightClick => current_state,
             AppCommand::ToggleControlsModal => {
                 self.show_controls_modal = !self.show_controls_modal;
                 current_state
             }
             AppCommand::ToggleMouseTrackpad => {
                 self.mouse_trackpad_enabled = !self.mouse_trackpad_enabled;
+                current_state
+            }
+            AppCommand::TogglePcOverlay => {
+                let enabled = crate::gfn::stream_prefs::pc_overlay_enabled();
+                crate::gfn::stream_prefs::set_pc_overlay_enabled(!enabled);
+                current_state
+            }
+            AppCommand::SetOverlayOpacity(opacity) => {
+                crate::gfn::stream_prefs::set_overlay_opacity(opacity);
+                current_state
+            }
+            AppCommand::SetOverlaySensitivity(sensitivity) => {
+                crate::gfn::stream_prefs::set_overlay_sensitivity(sensitivity);
                 current_state
             }
             AppCommand::SetMaxBitrate(kbps) => {
@@ -881,8 +903,16 @@ impl App {
                 self.key_shift = false;
                 current_state
             }
-            AppCommand::SendChord { ctrl, alt, key } => {
+            AppCommand::SendChord {
+                ctrl,
+                alt,
+                win,
+                key,
+            } => {
                 if let AppState::Streaming { peer, .. } = &current_state {
+                    if win {
+                        peer.send_key(crate::gfn::input_protocol::KEY_LEFT_WIN, true);
+                    }
                     if ctrl {
                         peer.send_key(crate::gfn::input_protocol::KEY_LEFT_CTRL, true);
                     }
@@ -895,6 +925,9 @@ impl App {
                     }
                     if ctrl {
                         peer.send_key(crate::gfn::input_protocol::KEY_LEFT_CTRL, false);
+                    }
+                    if win {
+                        peer.send_key(crate::gfn::input_protocol::KEY_LEFT_WIN, false);
                     }
                 }
                 self.key_shift = false;
@@ -986,7 +1019,9 @@ impl App {
                         self.paging.abort_job();
                         Self::start_catalog_fetch(
                             &self.http_client,
-                            self.tokens.as_ref().expect("catalog requires a saved login"),
+                            self.tokens
+                                .as_ref()
+                                .expect("catalog requires a saved login"),
                             &self.vpc_id_cache,
                             user,
                             filter == CatalogFilter::MyGames,
@@ -1443,12 +1478,15 @@ impl App {
         };
 
         let game_index = filtered_indices.get(selected).copied();
-        match (
-            game_index.and_then(|index| games.get(index)),
-            bearer_token,
-        ) {
+        match (game_index.and_then(|index| games.get(index)), bearer_token) {
             (Some(game), Some(token)) => {
                 let app_id = game.app_id.clone();
+                let account_linked = game.account_linked;
+                let known_zone_urls: Vec<String> = self
+                    .regions
+                    .iter()
+                    .map(|region| region.url.clone())
+                    .collect();
                 let queue_tracker =
                     Arc::new(std::sync::Mutex::new(cloudmatch::QueueStatus::default()));
                 let tracker_clone = queue_tracker.clone();
@@ -1469,6 +1507,8 @@ impl App {
                             settings: &settings,
                             zone_base_url: &zone_base_url,
                             language_code,
+                            account_linked,
+                            known_zone_urls: &known_zone_urls,
                         },
                     )
                     .await?;
@@ -1566,7 +1606,8 @@ impl App {
         let row_count = self.settings_tab.row_count();
 
         if let Some(row) = self.settings_expanded {
-            let option_count = settings_menu::option_count(self.settings_tab, row, regions_len).max(1);
+            let option_count =
+                settings_menu::option_count(self.settings_tab, row, regions_len).max(1);
             match input {
                 InputCommand::MoveUp => {
                     self.settings_option_focus = self.settings_option_focus.saturating_sub(1);
@@ -1620,7 +1661,8 @@ impl App {
                 } else {
                     1
                 };
-                if let Some(info) = settings_menu::row_info(self.settings_tab, self.settings_focus) {
+                if let Some(info) = settings_menu::row_info(self.settings_tab, self.settings_focus)
+                {
                     if matches!(info.kind, settings_menu::RowKind::Choice) {
                         let count = settings_menu::option_count(
                             self.settings_tab,
@@ -1648,7 +1690,8 @@ impl App {
                 }
             }
             InputCommand::Confirm => {
-                if let Some(info) = settings_menu::row_info(self.settings_tab, self.settings_focus) {
+                if let Some(info) = settings_menu::row_info(self.settings_tab, self.settings_focus)
+                {
                     match info.kind {
                         settings_menu::RowKind::Toggle(_) => {
                             if let Some(cmd) = settings_menu::command_for(
@@ -1896,8 +1939,7 @@ impl App {
                 InputCommand::Confirm,
             ) => match signaling::connect(&session.signaling_url, &session.session_id) {
                 Ok(handle) => {
-                    self.status_note =
-                        Some(self.tr("status-signaling-connecting"));
+                    self.status_note = Some(self.tr("status-signaling-connecting"));
                     AppState::Signaling {
                         user,
                         games,
@@ -1912,8 +1954,11 @@ impl App {
                     }
                 }
                 Err(error) => {
-                    self.status_note =
-                        Some(self.tr1("status-signaling-connect-failed", "error", format!("{error:#}")));
+                    self.status_note = Some(self.tr1(
+                        "status-signaling-connect-failed",
+                        "error",
+                        format!("{error:#}"),
+                    ));
                     AppState::SessionReady {
                         user,
                         games,
@@ -1925,7 +1970,7 @@ impl App {
                         session,
                     }
                 }
-            }
+            },
             (
                 AppState::Error {
                     code: None,
@@ -2172,10 +2217,15 @@ impl App {
                         *games = page.games;
                         *selected = 0;
                     }
-                    self.status_note = Some(self.tr2("status-search-results", ("count", result_count), ("query", &query)));
+                    self.status_note = Some(self.tr2(
+                        "status-search-results",
+                        ("count", result_count),
+                        ("query", &query),
+                    ));
                 }
                 PollJob::Done(Err(error)) => {
-                    self.status_note = Some(self.tr1("status-search-failed", "error", format!("{error:#}")));
+                    self.status_note =
+                        Some(self.tr1("status-search-failed", "error", format!("{error:#}")));
                 }
             }
             return;
@@ -2350,8 +2400,10 @@ impl App {
         let handle: JoinHandle<Result<catalog::CatalogPage>> = tokio::spawn(async move {
             let trimmed = server_query.trim();
             let query = (!trimmed.is_empty()).then_some(trimmed);
-            catalog::fetch_catalog_page_for_account(&client, &token, &cache, query, &cursor, owned_only)
-                .await
+            catalog::fetch_catalog_page_for_account(
+                &client, &token, &cache, query, &cursor, owned_only,
+            )
+            .await
         });
         self.paging.job = Some((generation, PollJob::Pending(handle)));
     }
@@ -2540,8 +2592,8 @@ impl App {
                 handle,
                 offer_sdp,
             } => {
-                self.membership_tier = crate::gfn::auth::load_tokens()
-                    .and_then(|tokens| tokens.membership_tier);
+                self.membership_tier =
+                    crate::gfn::auth::load_tokens().and_then(|tokens| tokens.membership_tier);
                 self.state = self.advance_signaling(
                     user,
                     games,
@@ -2576,7 +2628,11 @@ impl App {
                             peer.add_remote_ice(candidate);
                         }
                         SignalingEvent::Disconnected(reason) => {
-                            fatal_reason.get_or_insert(self.tr1("error-signaling-disconnected", "reason", &reason));
+                            fatal_reason.get_or_insert(self.tr1(
+                                "error-signaling-disconnected",
+                                "reason",
+                                &reason,
+                            ));
                             break;
                         }
                         _ => {}
@@ -2584,7 +2640,10 @@ impl App {
                 }
                 while let Some(event) = peer.try_recv() {
                     match event {
-                        crate::gfn::peer::PeerEvent::LocalAnswer { answer_sdp, nvst_sdp } => {
+                        crate::gfn::peer::PeerEvent::LocalAnswer {
+                            answer_sdp,
+                            nvst_sdp,
+                        } => {
                             self.status_note =
                                 Some("Answer SDP generado, enviado a NVIDIA...".to_owned());
                             handle.send_answer(answer_sdp, nvst_sdp);
@@ -2621,14 +2680,19 @@ impl App {
                                 4 => format!("La sesión finalizará en breve ({seconds_left}s)"),
                                 _ => format!("Aviso de tiempo de sesión: ~{mins} min restantes"),
                             };
-                            crate::log_stream!("session time warning code={code} left={seconds_left}s");
+                            crate::log_stream!(
+                                "session time warning code={code} left={seconds_left}s"
+                            );
                             self.status_note = Some(msg);
                         }
                         crate::gfn::peer::PeerEvent::Disconnected(reason) => {
                             crate::log_error!("Streaming peer disconnected: {reason}");
                             eprintln!("Streaming peer disconnected: {reason}");
-                            fatal_reason
-                                .get_or_insert(self.tr1("error-stream-lost", "reason", &reason));
+                            fatal_reason.get_or_insert(self.tr1(
+                                "error-stream-lost",
+                                "reason",
+                                &reason,
+                            ));
                             break;
                         }
                     }
@@ -2693,8 +2757,7 @@ impl App {
         for _ in 0..MAX_EVENTS_PER_TICK {
             match handle.try_recv() {
                 Some(SignalingEvent::Connected) => {
-                    self.status_note =
-                        Some(self.tr("status-signaling-connected"));
+                    self.status_note = Some(self.tr("status-signaling-connected"));
                 }
                 Some(SignalingEvent::Offer(sdp)) => {
                     self.status_note = Some(self.tr1("status-offer-received", "bytes", sdp.len()));
@@ -2721,7 +2784,8 @@ impl App {
                     }
                 }
                 Some(SignalingEvent::RemoteIce(candidate)) => {
-                    self.status_note = Some(self.tr1("status-remote-ice", "candidate", &candidate.candidate));
+                    self.status_note =
+                        Some(self.tr1("status-remote-ice", "candidate", &candidate.candidate));
                 }
                 Some(SignalingEvent::Error(message)) => {
                     eprintln!("Signaling: {message}");
@@ -3014,12 +3078,8 @@ impl App {
                 // Starred games the catalog did not page in are folded in here, so they have a row
                 // to be sorted into. Only on the browse load: a search should return what matches.
                 let games = merge_favorites(page.games, &self.favorite_games);
-                let filtered_indices = filter_indices_with_favorites(
-                    &games,
-                    "",
-                    self.catalog_sort,
-                    &self.favorites,
-                );
+                let filtered_indices =
+                    filter_indices_with_favorites(&games, "", self.catalog_sort, &self.favorites);
                 AppState::Catalog {
                     user,
                     games,
@@ -3155,7 +3215,12 @@ impl App {
             PollJob::Done(Err(error)) => AppState::Error {
                 // grab the code before it gets flattened into a string
                 code: gfn_error_code(&error),
-                message: tr(locale, "error-session-create", "error", format!("{error:#}")),
+                message: tr(
+                    locale,
+                    "error-session-create",
+                    "error",
+                    format!("{error:#}"),
+                ),
                 retry: ErrorRetry::BackToCatalog {
                     user,
                     games,
@@ -3183,6 +3248,7 @@ mod catalog_order_tests {
             store: None,
             last_played: played.then(|| "2026-07-30T00:00:00Z".to_owned()),
             search_key: title.to_lowercase(),
+            account_linked: true,
         }
     }
 
@@ -3200,8 +3266,7 @@ mod catalog_order_tests {
         ];
         let favorites: BTreeSet<String> = ["starred".to_owned()].into_iter().collect();
 
-        let indices =
-            filter_indices_with_favorites(&games, "", CatalogSort::TitleAsc, &favorites);
+        let indices = filter_indices_with_favorites(&games, "", CatalogSort::TitleAsc, &favorites);
         assert_eq!(ids(&games, &indices), ["starred", "recent", "plain"]);
     }
 
@@ -3210,8 +3275,7 @@ mod catalog_order_tests {
     fn a_starred_recent_game_sorts_as_starred() {
         let games = vec![game("other", "Other", true), game("both", "Both", true)];
         let favorites: BTreeSet<String> = ["both".to_owned()].into_iter().collect();
-        let indices =
-            filter_indices_with_favorites(&games, "", CatalogSort::TitleAsc, &favorites);
+        let indices = filter_indices_with_favorites(&games, "", CatalogSort::TitleAsc, &favorites);
         assert_eq!(ids(&games, &indices), ["both", "other"]);
     }
 

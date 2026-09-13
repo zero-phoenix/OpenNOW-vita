@@ -30,6 +30,15 @@ pub struct GameSummary {
     /// `variant.gfn.library.lastPlayedDate` - `None` for anything never launched from this
     /// account (i.e.
     pub last_played: Option<String>,
+    /// Whether the variant CloudMatch will actually be asked to launch is confirmed present in
+    /// this account's library (`variant.gfn.library.status` is `MANUAL`/`PLATFORM_SYNC`/
+    /// `IN_LIBRARY`, not just "not excluded by the owned-games filter"). Mirrors the sibling
+    /// desktop client's `ShellStore.qml` (`accountLinked: Boolean(selectedVariant &&
+    /// selectedVariant.inLibrary)`) - sent to CloudMatch as `accountLinked` instead of a
+    /// hardcoded `true`, since a wrong value there is a plausible cause of Install-to-Play
+    /// titles (linked Steam/Epic library, no direct GFN-PC purchase) failing to launch even
+    /// though they show up in the list.
+    pub account_linked: bool,
     /// Lowercased `title`, computed once here so the per-keystroke filter and the title sorts in
     /// `app::filter_indices` never allocate.
     pub search_key: String,
@@ -53,7 +62,11 @@ pub async fn fetch_vpc_id(client: &Client, token: &str) -> Result<String> {
     fetch_vpc_id_with_base_url(client, token, CLOUDMATCH_BASE_URL).await
 }
 
-pub async fn fetch_vpc_id_with_base_url(client: &Client, token: &str, base_url: &str) -> Result<String> {
+pub async fn fetch_vpc_id_with_base_url(
+    client: &Client,
+    token: &str,
+    base_url: &str,
+) -> Result<String> {
     let base_url = if base_url.ends_with('/') {
         base_url.to_owned()
     } else {
@@ -134,8 +147,10 @@ struct CatalogAppVariant {
     gfn: Option<CatalogAppVariantGfn>,
 }
 
-/// Only the `library.lastPlayedDate` leaf of `variant.gfn` - mirrors OpenNOW's
-/// `variant.gfn?.library?.lastPlayedDate` (`games.ts:585`).
+/// `variant.gfn.library` - mirrors OpenNOW's own GraphQL shape (`gfn.rs`:
+/// `variants { id appStore ... gfn { status library { status selected lastPlayedDate } } }`),
+/// which is the sibling client confirmed to resolve the right variant against this same
+/// `games.geforce.com` endpoint.
 #[derive(Debug, Deserialize)]
 struct CatalogAppVariantGfn {
     #[serde(default)]
@@ -146,11 +161,56 @@ struct CatalogAppVariantGfn {
 struct CatalogAppVariantLibrary {
     #[serde(default, rename = "lastPlayedDate")]
     last_played_date: Option<String>,
+    /// GFN's own "this is the account's chosen entry point for this app" flag - not the same as
+    /// "owned"; a title can be owned and still not be `selected` if e.g. two linked stores both
+    /// carry it. Absent on servers/schemas that predate this field, in which case `selected`
+    /// defaults to `false` and variant selection falls back to `status`-derived ownership below.
+    #[serde(default)]
+    selected: Option<bool>,
+    /// Ownership/link status for this variant - `MANUAL` and `PLATFORM_SYNC` cover the
+    /// Install-to-Play case (title reachable only through a linked storefront such as Steam,
+    /// never purchased through GFN itself); `IN_LIBRARY` covers a native GFN entitlement.
+    #[serde(default)]
+    status: Option<String>,
+}
+
+/// Library statuses that mean "this variant is genuinely reachable from this account", mirroring
+/// OpenNOW's own `in_library` check (`gfn.rs`: `matches!(status, "MANUAL" | "PLATFORM_SYNC" |
+/// "IN_LIBRARY")`). `NOT_OWNED` (and anything else, including a missing field on older schemas)
+/// is deliberately excluded.
+fn library_status_is_owned(status: Option<&str>) -> bool {
+    matches!(status, Some("MANUAL" | "PLATFORM_SYNC" | "IN_LIBRARY"))
 }
 
 impl CatalogAppVariant {
     fn last_played_date(&self) -> Option<&str> {
-        self.gfn.as_ref()?.library.as_ref()?.last_played_date.as_deref()
+        self.gfn
+            .as_ref()?
+            .library
+            .as_ref()?
+            .last_played_date
+            .as_deref()
+    }
+
+    fn is_selected(&self) -> bool {
+        self.gfn
+            .as_ref()
+            .and_then(|gfn| gfn.library.as_ref())
+            .and_then(|library| library.selected)
+            .unwrap_or(false)
+    }
+
+    fn is_owned(&self) -> bool {
+        library_status_is_owned(
+            self.gfn
+                .as_ref()
+                .and_then(|gfn| gfn.library.as_ref())
+                .and_then(|library| library.status.as_deref()),
+        )
+    }
+
+    fn is_numeric_id(&self) -> bool {
+        !self.id.is_empty() && self.id.chars().all(|c| c.is_ascii_digit())
     }
 }
 
@@ -215,7 +275,7 @@ const CATALOG_PAGE_FIELDS: &str = r#"
     items {
       id
       title
-      variants { id appStore gfn { library { lastPlayedDate } } }
+      variants { id appStore gfn { library { status selected lastPlayedDate } } }
       images { GAME_BOX_ART KEY_IMAGE KEY_ART }
     }
     pageInfo { hasNextPage endCursor totalCount }
@@ -303,7 +363,11 @@ pub async fn fetch_catalog_page(
         Some(_) => (catalog_search_query(), "catalog search"),
         None => (catalog_query(), "catalog"),
     };
-    let filters = if owned_only { owned_games_filter() } else { json!({}) };
+    let filters = if owned_only {
+        owned_games_filter()
+    } else {
+        json!({})
+    };
     let mut variables = json!({
         "vpcId": vpc_id,
         "locale": LOCALE,
@@ -315,8 +379,13 @@ pub async fn fetch_catalog_page(
     if let Some(query) = query {
         variables["searchString"] = json!(query);
     }
-    run_catalog_query(client, token, json!({ "query": document, "variables": variables }), label)
-        .await
+    run_catalog_query(
+        client,
+        token,
+        json!({ "query": document, "variables": variables }),
+        label,
+    )
+    .await
 }
 
 async fn run_catalog_query(
@@ -363,15 +432,44 @@ async fn run_catalog_query(
     })
 }
 
+/// Picks which of an app's variants is "the" one for launch/display purposes, mirroring
+/// OpenNOW's `app_to_game` (`gfn.rs`): the variant CloudMatch actually associates with this
+/// account (`gfn.library.selected == true`) wins first, falling back to any variant confirmed
+/// owned (`status` in `MANUAL`/`PLATFORM_SYNC`/`IN_LIBRARY`), and finally to the first variant if
+/// neither signal is present (legacy schema without `selected`/`status`, or a genuinely
+/// unresolvable multi-store listing). This is the variant a multi-storefront title (e.g.
+/// Install-to-Play via a linked Steam library) should be launched and labelled with - picking
+/// blindly by "first numeric id" instead, as this function used to, could silently choose a
+/// *different* storefront's entry than the one actually linked to the account.
+fn selected_variant_index(variants: &[CatalogAppVariant]) -> Option<usize> {
+    if variants.is_empty() {
+        return None;
+    }
+    variants
+        .iter()
+        .position(CatalogAppVariant::is_selected)
+        .or_else(|| variants.iter().position(CatalogAppVariant::is_owned))
+        .or(Some(0))
+}
+
 /// Shared `CatalogAppItem` -> `GameSummary` mapping for both catalog queries above - they request
 /// the same item shape (`id`, `title`, `variants`, `images`).
 fn to_game_summary(item: CatalogAppItem) -> GameSummary {
-    let numeric_variant = item
-        .variants
-        .iter()
-        .find(|v| v.id.chars().all(|c| c.is_ascii_digit()));
-    let numeric_app_id = numeric_variant
-        .map(|v| v.id.clone())
+    let selected_index = selected_variant_index(&item.variants);
+    let selected_variant = selected_index.and_then(|index| item.variants.get(index));
+
+    // CloudMatch's `POST /v2/session` needs a numeric `appId` - the *selected* variant's id only
+    // if it happens to be numeric (some storefront variant ids are opaque strings), otherwise any
+    // other numeric variant, then the item's own id, exactly like the reference client.
+    let numeric_app_id = selected_variant
+        .filter(|variant| variant.is_numeric_id())
+        .map(|variant| variant.id.clone())
+        .or_else(|| {
+            item.variants
+                .iter()
+                .find(|v| v.is_numeric_id())
+                .map(|v| v.id.clone())
+        })
         .or_else(|| {
             if item.id.chars().all(|c| c.is_ascii_digit()) {
                 Some(item.id.clone())
@@ -380,9 +478,15 @@ fn to_game_summary(item: CatalogAppItem) -> GameSummary {
             }
         })
         .unwrap_or_else(|| item.id.clone());
-    let store = numeric_variant
+
+    // `store` follows the *selected* variant, not whichever one happened to have a numeric id -
+    // otherwise a title linked through Steam could get mislabelled with a different store's name.
+    let store = selected_variant
         .or_else(|| item.variants.first())
         .and_then(|v| v.app_store.clone());
+
+    let account_linked = selected_variant.is_some_and(CatalogAppVariant::is_owned);
+
     let last_played = item
         .variants
         .iter()
@@ -396,6 +500,106 @@ fn to_game_summary(item: CatalogAppItem) -> GameSummary {
         title: item.title,
         store,
         last_played,
+        account_linked,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item_from_json(value: serde_json::Value) -> CatalogAppItem {
+        serde_json::from_value(value).expect("catalog item should decode")
+    }
+
+    /// The bug this session fixes: a Steam-linked Install-to-Play title where the *selected*
+    /// variant's id is not numeric (a raw storefront id) but another variant's id is. The old
+    /// "first numeric id wins" heuristic would have grabbed the wrong variant's `store`, even
+    /// though the numeric `app_id` it needs for launch is still correctly sourced from elsewhere.
+    #[test]
+    fn selected_non_numeric_variant_still_supplies_the_store_while_a_numeric_sibling_supplies_the_app_id()
+     {
+        let item = item_from_json(json!({
+            "id": "app-1",
+            "title": "Titan Souls",
+            "variants": [
+                {
+                    "id": "steam-12345",
+                    "appStore": "STEAM",
+                    "gfn": { "library": { "status": "PLATFORM_SYNC", "selected": true } }
+                },
+                {
+                    "id": "998877",
+                    "appStore": "GFN",
+                    "gfn": { "library": { "status": "NOT_OWNED", "selected": false } }
+                }
+            ]
+        }));
+        let summary = to_game_summary(item);
+        assert_eq!(summary.app_id, "998877");
+        assert_eq!(summary.store.as_deref(), Some("STEAM"));
+        assert!(summary.account_linked);
+    }
+
+    /// No `selected` variant at all (older schema, or GFN genuinely has no preference yet) falls
+    /// back to whichever variant is confirmed owned, not just the first one in the array.
+    #[test]
+    fn falls_back_to_the_owned_variant_when_none_is_marked_selected() {
+        let item = item_from_json(json!({
+            "id": "app-2",
+            "title": "Some Game",
+            "variants": [
+                {
+                    "id": "1002",
+                    "appStore": "EPIC",
+                    "gfn": { "library": { "status": "NOT_OWNED" } }
+                },
+                {
+                    "id": "1003",
+                    "appStore": "STEAM",
+                    "gfn": { "library": { "status": "PLATFORM_SYNC" } }
+                }
+            ]
+        }));
+        let summary = to_game_summary(item);
+        assert_eq!(summary.app_id, "1003");
+        assert_eq!(summary.store.as_deref(), Some("STEAM"));
+        assert!(summary.account_linked);
+    }
+
+    /// Legacy schema without `selected` or `status` at all (just `lastPlayedDate`, the shape this
+    /// module used to request) must keep decoding and keep picking the first variant, same as
+    /// before - and must not claim `accountLinked` when it has no ownership signal to justify it.
+    #[test]
+    fn legacy_schema_without_selected_or_status_still_decodes() {
+        let item = item_from_json(json!({
+            "id": "app-3",
+            "title": "Legacy Game",
+            "variants": [
+                { "id": "5001", "appStore": "GFN", "gfn": { "library": { "lastPlayedDate": "2024-01-01" } } }
+            ]
+        }));
+        let summary = to_game_summary(item);
+        assert_eq!(summary.app_id, "5001");
+        assert_eq!(summary.store.as_deref(), Some("GFN"));
+        assert_eq!(summary.last_played.as_deref(), Some("2024-01-01"));
+        assert!(!summary.account_linked);
+    }
+
+    /// Center-of-catalog sanity check: a single-variant, single-store, perfectly ordinary game
+    /// keeps behaving exactly like before this fix.
+    #[test]
+    fn a_single_owned_variant_is_selected_and_linked() {
+        let item = item_from_json(json!({
+            "id": "app-4",
+            "title": "Ordinary Game",
+            "variants": [
+                { "id": "42", "appStore": "GFN", "gfn": { "library": { "status": "IN_LIBRARY", "selected": true } } }
+            ]
+        }));
+        let summary = to_game_summary(item);
+        assert_eq!(summary.app_id, "42");
+        assert!(summary.account_linked);
     }
 }
 

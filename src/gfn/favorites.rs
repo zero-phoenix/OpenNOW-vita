@@ -47,6 +47,10 @@ impl FavoriteGame {
             store: self.store.clone(),
             last_played: None,
             search_key: self.title.to_lowercase(),
+            // Favorites persist only id/title/cover/store, not the live ownership signal from
+            // `variant.gfn.library.status` - defaulting to `true` preserves this path's existing
+            // (working) launch behavior instead of guessing it should now be `false`.
+            account_linked: true,
         }
     }
 }

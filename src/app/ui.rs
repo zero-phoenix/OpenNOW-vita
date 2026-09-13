@@ -185,7 +185,12 @@ enum StreamIcon {
     ChevronDown,
 }
 
-fn paint_stream_icon(painter: &egui::Painter, rect: egui::Rect, icon: StreamIcon, tint: egui::Color32) {
+fn paint_stream_icon(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    icon: StreamIcon,
+    tint: egui::Color32,
+) {
     match icon {
         StreamIcon::Keyboard => {
             let stroke = egui::Stroke::new(1.0_f32, tint);
@@ -242,7 +247,10 @@ fn paint_stream_icon(painter: &egui::Painter, rect: egui::Rect, icon: StreamIcon
             let r = rect.width().min(rect.height()) * 0.40_f32;
             painter.circle_stroke(c, r, egui::Stroke::new(1.5_f32, tint));
             painter.line_segment(
-                [egui::pos2(c.x, c.y - r * 1.15_f32), egui::pos2(c.x, c.y - r * 0.15_f32)],
+                [
+                    egui::pos2(c.x, c.y - r * 1.15_f32),
+                    egui::pos2(c.x, c.y - r * 0.15_f32),
+                ],
                 egui::Stroke::new(2.0_f32, tint),
             );
         }
@@ -280,11 +288,17 @@ fn paint_stream_icon(painter: &egui::Painter, rect: egui::Rect, icon: StreamIcon
             let dpad_cy = inset.center().y;
             let arm = 2.5;
             painter.line_segment(
-                [egui::pos2(dpad_cx - arm, dpad_cy), egui::pos2(dpad_cx + arm, dpad_cy)],
+                [
+                    egui::pos2(dpad_cx - arm, dpad_cy),
+                    egui::pos2(dpad_cx + arm, dpad_cy),
+                ],
                 stroke,
             );
             painter.line_segment(
-                [egui::pos2(dpad_cx, dpad_cy - arm), egui::pos2(dpad_cx, dpad_cy + arm)],
+                [
+                    egui::pos2(dpad_cx, dpad_cy - arm),
+                    egui::pos2(dpad_cx, dpad_cy + arm),
+                ],
                 stroke,
             );
 
@@ -301,7 +315,10 @@ fn paint_stream_icon(painter: &egui::Painter, rect: egui::Rect, icon: StreamIcon
 
             let cx = center.x;
             let cy = center.y;
-            painter.line_segment([center, egui::pos2(cx + radius * 0.4, cy - radius * 0.5)], stroke);
+            painter.line_segment(
+                [center, egui::pos2(cx + radius * 0.4, cy - radius * 0.5)],
+                stroke,
+            );
             painter.line_segment([center, egui::pos2(cx - radius * 0.5, cy)], stroke);
         }
         StreamIcon::Globe => {
@@ -312,12 +329,18 @@ fn paint_stream_icon(painter: &egui::Painter, rect: egui::Rect, icon: StreamIcon
             let meridian: Vec<egui::Pos2> = (0..=8)
                 .map(|step| {
                     let t = step as f32 / 8.0 * std::f32::consts::PI - std::f32::consts::FRAC_PI_2;
-                    egui::pos2(center.x + radius * 0.42 * t.sin(), center.y - radius * t.cos())
+                    egui::pos2(
+                        center.x + radius * 0.42 * t.sin(),
+                        center.y - radius * t.cos(),
+                    )
                 })
                 .collect();
             painter.line(meridian, stroke);
             painter.line_segment(
-                [egui::pos2(center.x - radius, center.y), egui::pos2(center.x + radius, center.y)],
+                [
+                    egui::pos2(center.x - radius, center.y),
+                    egui::pos2(center.x + radius, center.y),
+                ],
                 stroke,
             );
         }
@@ -387,11 +410,17 @@ fn paint_stream_icon(painter: &egui::Painter, rect: egui::Rect, icon: StreamIcon
             let dx = rect.width() * 0.22;
             let dy = rect.height() * 0.22;
             painter.line_segment(
-                [egui::pos2(c.x - dx, c.y), egui::pos2(c.x - dx * 0.15, c.y + dy)],
+                [
+                    egui::pos2(c.x - dx, c.y),
+                    egui::pos2(c.x - dx * 0.15, c.y + dy),
+                ],
                 stroke,
             );
             painter.line_segment(
-                [egui::pos2(c.x - dx * 0.15, c.y + dy), egui::pos2(c.x + dx, c.y - dy)],
+                [
+                    egui::pos2(c.x - dx * 0.15, c.y + dy),
+                    egui::pos2(c.x + dx, c.y - dy),
+                ],
                 stroke,
             );
         }
@@ -400,8 +429,14 @@ fn paint_stream_icon(painter: &egui::Painter, rect: egui::Rect, icon: StreamIcon
             let c = rect.center();
             let dx = rect.width() * 0.24;
             let dy = rect.height() * 0.16;
-            painter.line_segment([egui::pos2(c.x - dx, c.y - dy), egui::pos2(c.x, c.y + dy)], stroke);
-            painter.line_segment([egui::pos2(c.x, c.y + dy), egui::pos2(c.x + dx, c.y - dy)], stroke);
+            painter.line_segment(
+                [egui::pos2(c.x - dx, c.y - dy), egui::pos2(c.x, c.y + dy)],
+                stroke,
+            );
+            painter.line_segment(
+                [egui::pos2(c.x, c.y + dy), egui::pos2(c.x + dx, c.y - dy)],
+                stroke,
+            );
         }
     }
 }
@@ -434,8 +469,14 @@ fn paint_heart(painter: &egui::Painter, rect: egui::Rect, filled: bool, color: e
         let stroke = egui::Stroke::new(1.2_f32, color);
         painter.circle_stroke(left_lobe, lobe_radius, stroke);
         painter.circle_stroke(right_lobe, lobe_radius, stroke);
-        painter.line_segment([egui::pos2(left_lobe.x - lobe_radius, left_lobe.y), tip], stroke);
-        painter.line_segment([egui::pos2(right_lobe.x + lobe_radius, right_lobe.y), tip], stroke);
+        painter.line_segment(
+            [egui::pos2(left_lobe.x - lobe_radius, left_lobe.y), tip],
+            stroke,
+        );
+        painter.line_segment(
+            [egui::pos2(right_lobe.x + lobe_radius, right_lobe.y), tip],
+            stroke,
+        );
     }
 }
 
@@ -463,8 +504,7 @@ fn stream_icon_button(ui: &mut egui::Ui, icon: StreamIcon, tint: egui::Color32) 
     };
     painter.rect_filled(rect, 6.0, fill);
 
-    let icon_rect =
-        egui::Rect::from_center_size(rect.center(), egui::vec2(ICON_SIZE, ICON_SIZE));
+    let icon_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(ICON_SIZE, ICON_SIZE));
     paint_stream_icon(painter, icon_rect, icon, tint);
     response
 }
@@ -521,11 +561,18 @@ fn stream_stats_panel(
     let gap = 5.0;
 
     let fps_text = format!("{current_fps:.0}");
-    let fps_galley = ui.fonts(|f| f.layout_no_wrap(fps_text, value_font.clone(), fps_color(current_fps)));
-    let fps_label_galley = ui.fonts(|f| f.layout_no_wrap("FPS".to_owned(), label_font.clone(), TEXT_DIM));
-    let extra_text =
-        format!("{kbps} kbps  |  {rtt} ms ping  |  {jit} ms jitter  |  {dec} ms decode  |  {loss}% perdida  |  {drop}/s drop");
-    let extra_color = if loss_val >= 2.0 || drop_val >= 1.0 { DANGER } else { TEXT_DIM };
+    let fps_galley =
+        ui.fonts(|f| f.layout_no_wrap(fps_text, value_font.clone(), fps_color(current_fps)));
+    let fps_label_galley =
+        ui.fonts(|f| f.layout_no_wrap("FPS".to_owned(), label_font.clone(), TEXT_DIM));
+    let extra_text = format!(
+        "{kbps} kbps  |  {rtt} ms ping  |  {jit} ms jitter  |  {dec} ms decode  |  {loss}% perdida  |  {drop}/s drop"
+    );
+    let extra_color = if loss_val >= 2.0 || drop_val >= 1.0 {
+        DANGER
+    } else {
+        TEXT_DIM
+    };
     let extra_galley = ui.fonts(|f| f.layout_no_wrap(extra_text, extra_font.clone(), extra_color));
 
     let content_height = graph_size.y.max(fps_galley.size().y);
@@ -554,7 +601,11 @@ fn stream_stats_panel(
     painter.galley(egui::pos2(x, label_y), fps_label_galley.clone(), TEXT_DIM);
     x += fps_label_galley.size().x + 3.0;
     let value_y = top_y + (content_height - fps_galley.size().y) / 2.0;
-    painter.galley(egui::pos2(x, value_y), fps_galley.clone(), fps_color(current_fps));
+    painter.galley(
+        egui::pos2(x, value_y),
+        fps_galley.clone(),
+        fps_color(current_fps),
+    );
     x += fps_galley.size().x + gap;
 
     // Sparkline of recent FPS samples.
@@ -565,7 +616,11 @@ fn stream_stats_panel(
         egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12),
     );
     if fps_history.len() >= 2 {
-        let max_fps = fps_history.iter().copied().fold(1.0_f32, f32::max).max(60.0);
+        let max_fps = fps_history
+            .iter()
+            .copied()
+            .fold(1.0_f32, f32::max)
+            .max(60.0);
         let n = fps_history.len();
         let points: Vec<egui::Pos2> = fps_history
             .iter()
@@ -615,9 +670,7 @@ fn reserve_stream_touch(ctx: &egui::Context, rect: egui::Rect) {
 
 /// Drops last frame's claims, so a control that is no longer drawn stops swallowing touches.
 fn clear_stream_touch_reservations(ctx: &egui::Context) {
-    ctx.data_mut(|data| {
-        data.insert_temp(egui::Id::new(STREAM_UI_RECTS), Vec::<egui::Rect>::new())
-    });
+    ctx.data_mut(|data| data.insert_temp(egui::Id::new(STREAM_UI_RECTS), Vec::<egui::Rect>::new()));
 }
 
 const KEYBOARD_CAP_SIZE: egui::Vec2 = egui::vec2(38.0, 26.0);
@@ -652,7 +705,12 @@ pub(crate) fn selected_game<'a>(
 }
 
 /// Formats `id` with a single Fluent argument.
-fn text1(i18n: &I18n, id: &'static str, key: &'static str, value: impl ToString) -> std::rc::Rc<str> {
+fn text1(
+    i18n: &I18n,
+    id: &'static str,
+    key: &'static str,
+    value: impl ToString,
+) -> std::rc::Rc<str> {
     let mut args = FluentArgs::new();
     args.set(key, arg_string(value.to_string()));
     i18n.text_with(id, args)
@@ -963,17 +1021,24 @@ pub fn build_ui(ctx: &egui::Context, app: &App) -> Vec<AppCommand> {
         AppState::Error { message, code, .. } => error_screen(ctx, &i18n, message, *code),
     }
 
-    if app.show_controls_modal && matches!(app.state, AppState::Streaming { .. })
+    if app.show_controls_modal
+        && matches!(app.state, AppState::Streaming { .. })
         && let Some(cmd) = stream_controls_modal(ctx, &i18n)
     {
         commands.push(cmd);
     }
 
     if app.keyboard_open && matches!(app.state, AppState::Streaming { .. }) {
-        commands.extend(on_screen_keyboard(ctx, app.key_shift, app.key_ctrl, app.key_alt));
+        commands.extend(on_screen_keyboard(
+            ctx,
+            app.key_shift,
+            app.key_ctrl,
+            app.key_alt,
+        ));
     }
 
-    if app.show_controls_hint && matches!(app.state, AppState::Streaming { .. })
+    if app.show_controls_hint
+        && matches!(app.state, AppState::Streaming { .. })
         && let Some(cmd) = controls_hint_overlay(ctx, &i18n)
     {
         commands.push(cmd);
@@ -1015,7 +1080,7 @@ fn splash_overlay(ctx: &egui::Context) {
         egui::Id::new("splash_overlay"),
     ));
 
-    if alpha_u8 >= 255 {
+    if alpha_u8 == 255 {
         painter.rect_filled(screen, 0.0, BG_DEEP);
     } else {
         painter.rect_filled(
@@ -1039,8 +1104,7 @@ fn splash_overlay(ctx: &egui::Context) {
     let size = logo.size_vec2();
     let width = (screen.width() * 0.52 * scale).min(size.x * 1.5);
     let height = width * size.y / size.x.max(1.0);
-    let logo_rect =
-        egui::Rect::from_center_size(screen.center(), egui::vec2(width, height));
+    let logo_rect = egui::Rect::from_center_size(screen.center(), egui::vec2(width, height));
     painter.image(
         logo.id(),
         logo_rect,
@@ -1066,13 +1130,20 @@ fn login_screen(ctx: &egui::Context, i18n: &I18n, app: &App) {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.vertical_centered(|ui| {
             ui.add_space(80.0);
-            ui.heading(egui::RichText::new("OpenNOW Vita").size(32.0).strong().color(ACCENT));
+            ui.heading(
+                egui::RichText::new("OpenNOW Vita")
+                    .size(32.0)
+                    .strong()
+                    .color(ACCENT),
+            );
             ui.label(i18n.text("login-subtitle").as_ref());
             ui.add_space(24.0);
             button_hint(ui, &i18n.text("login-hint"), 13.0, TEXT_DIM, true);
             ui.add_space(24.0);
             if let Some(last_input) = app.last_input {
-                ui.weak(text1(i18n, "login-last-input", "input", format!("{last_input:?}")).as_ref());
+                ui.weak(
+                    text1(i18n, "login-last-input", "input", format!("{last_input:?}")).as_ref(),
+                );
             }
         });
     });
@@ -1167,10 +1238,8 @@ fn catalog_screen(ctx: &egui::Context, i18n: &I18n, view: &CatalogView<'_>) -> V
                         let size = logo.size_vec2();
                         let height = 24.0;
                         let width = height * size.x / size.y.max(1.0);
-                        let (rect, _) = ui.allocate_exact_size(
-                            egui::vec2(width, height),
-                            egui::Sense::hover(),
-                        );
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
                         ui.painter().image(
                             logo.id(),
                             rect,
@@ -1188,7 +1257,11 @@ fn catalog_screen(ctx: &egui::Context, i18n: &I18n, view: &CatalogView<'_>) -> V
                     }
                 }
                 if let Some(total) = view.total_count {
-                    ui.label(egui::RichText::new("/").size(15.0).color(BORDER.gamma_multiply(3.0)));
+                    ui.label(
+                        egui::RichText::new("/")
+                            .size(15.0)
+                            .color(BORDER.gamma_multiply(3.0)),
+                    );
                     let key = if view.loading_more {
                         "catalog-count-loading"
                     } else {
@@ -1263,7 +1336,12 @@ fn catalog_screen(ctx: &egui::Context, i18n: &I18n, view: &CatalogView<'_>) -> V
         )
         .show(ctx, |ui| {
             if let Some(note) = view.status_note {
-                ui.label(egui::RichText::new(note).italics().size(11.0).color(TEXT_DIM));
+                ui.label(
+                    egui::RichText::new(note)
+                        .italics()
+                        .size(11.0)
+                        .color(TEXT_DIM),
+                );
             }
             button_hint(ui, &i18n.text("catalog-footer-hint"), 11.0, TEXT_DIM, false);
         });
@@ -1300,8 +1378,7 @@ fn controls_hint_overlay(ctx: &egui::Context, i18n: &I18n) -> Option<AppCommand>
     const HINT_ANIMATION: f64 = 0.9;
     let started_id = egui::Id::new("controls_hint_started_at");
     let now = ctx.input(|input| input.time);
-    let started_at = ctx
-        .data_mut(|data| *data.get_temp_mut_or_insert_with(started_id, || now));
+    let started_at = ctx.data_mut(|data| *data.get_temp_mut_or_insert_with(started_id, || now));
     let progress = ((now - started_at) / HINT_ANIMATION).clamp(0.0, 1.0) as f32;
     if progress < 1.0 {
         ctx.request_repaint();
@@ -1344,7 +1421,8 @@ fn controls_hint_overlay(ctx: &egui::Context, i18n: &I18n) -> Option<AppCommand>
                 if ui
                     .add_sized(
                         [130.0, 28.0],
-                        egui::Button::new(i18n.text("controls-hint-dismiss").as_ref()).fill(BG_RAISED),
+                        egui::Button::new(i18n.text("controls-hint-dismiss").as_ref())
+                            .fill(BG_RAISED),
                     )
                     .clicked()
                 {
@@ -1435,7 +1513,9 @@ fn settings_modal(
                             if let Some(email) = &user.email {
                                 if settings.tab == SettingsTab::Account {
                                     ui.label(
-                                        egui::RichText::new(email).size(12.0).color(egui::Color32::WHITE),
+                                        egui::RichText::new(email)
+                                            .size(12.0)
+                                            .color(egui::Color32::WHITE),
                                     );
                                     ui.label(
                                         egui::RichText::new(format!(
@@ -1577,9 +1657,17 @@ fn settings_chip_choice(
     let count = crate::app::settings_menu::option_count(tab, row, 0);
 
     let block = ui.vertical(|ui| {
-        ui.label(egui::RichText::new(i18n.text(info.label_key).as_ref()).size(12.5).strong());
+        ui.label(
+            egui::RichText::new(i18n.text(info.label_key).as_ref())
+                .size(12.5)
+                .strong(),
+        );
         if let Some(desc_key) = info.desc_key {
-            ui.label(egui::RichText::new(i18n.text(desc_key).as_ref()).size(9.5).color(TEXT_DIM));
+            ui.label(
+                egui::RichText::new(i18n.text(desc_key).as_ref())
+                    .size(9.5)
+                    .color(TEXT_DIM),
+            );
         }
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
@@ -1592,15 +1680,17 @@ fn settings_chip_choice(
                 } else {
                     BG_RAISED
                 };
-                let text = egui::RichText::new(label)
-                    .size(11.0)
-                    .color(if selected {
-                        egui::Color32::WHITE
-                    } else {
-                        TEXT_DIM
-                    });
+                let text = egui::RichText::new(label).size(11.0).color(if selected {
+                    egui::Color32::WHITE
+                } else {
+                    TEXT_DIM
+                });
                 if ui
-                    .add(egui::Button::new(text).fill(fill).min_size(egui::vec2(0.0, 28.0)))
+                    .add(
+                        egui::Button::new(text)
+                            .fill(fill)
+                            .min_size(egui::vec2(0.0, 28.0)),
+                    )
                     .clicked()
                 {
                     command = Some(AppCommand::ChooseSettingsOption(row, option));
@@ -1634,11 +1724,8 @@ fn battery_color(battery: crate::power::BatteryStatus) -> egui::Color32 {
 
 fn paint_battery(painter: &egui::Painter, rect: egui::Rect, battery: crate::power::BatteryStatus) {
     let color = battery_color(battery);
-    let body = egui::Rect::from_min_max(
-        rect.min,
-        egui::pos2(rect.max.x - 3.0, rect.max.y),
-    )
-    .shrink2(egui::vec2(0.0, 3.0));
+    let body = egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x - 3.0, rect.max.y))
+        .shrink2(egui::vec2(0.0, 3.0));
     painter.rect_stroke(
         body,
         2.0,
@@ -1928,7 +2015,8 @@ fn server_picker_modal(
     let focus = app.server_picker_focus;
 
     let queue_for = |url: &str| {
-        crate::gfn::queue_stats::server_code_from_url(url).and_then(|code| queue.get(&code).copied())
+        crate::gfn::queue_stats::server_code_from_url(url)
+            .and_then(|code| queue.get(&code).copied())
     };
     let best_index = regions
         .iter()
@@ -1959,7 +2047,9 @@ fn server_picker_modal(
             ui.set_width(520.0);
 
             ui.horizontal(|ui| {
-                ui.heading(egui::RichText::new(i18n.text("server-picker-heading").as_ref()).size(15.0));
+                ui.heading(
+                    egui::RichText::new(i18n.text("server-picker-heading").as_ref()).size(15.0),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .add_sized(
@@ -1973,21 +2063,20 @@ fn server_picker_modal(
                 });
             });
             if let Some(game) = game {
-                ui.label(
-                    egui::RichText::new(&game.title)
-                        .size(10.5)
-                        .color(TEXT_DIM),
-                );
+                ui.label(egui::RichText::new(&game.title).size(10.5).color(TEXT_DIM));
             }
             ui.separator();
 
             if app.is_loading_regions() {
                 ui.label(
-                    egui::RichText::new(i18n.text(if app.regions_measuring {
-                        "settings-region-measuring"
-                    } else {
-                        "settings-region-loading"
-                    }).as_ref())
+                    egui::RichText::new(
+                        i18n.text(if app.regions_measuring {
+                            "settings-region-measuring"
+                        } else {
+                            "settings-region-loading"
+                        })
+                        .as_ref(),
+                    )
                     .size(10.0)
                     .color(TEXT_DIM),
                 );
@@ -2004,12 +2093,13 @@ fn server_picker_modal(
                 .id_salt("server_picker_list")
                 .max_height(200.0)
                 .show(ui, |ui| {
-                    let auto_detail = best_index
-                        .and_then(|index| regions.get(index))
-                        .map(|region| match region.ping_ms {
-                            Some(ms) => format!("{} · {ms} ms", region.name),
-                            None => region.name.clone(),
-                        });
+                    let auto_detail =
+                        best_index
+                            .and_then(|index| regions.get(index))
+                            .map(|region| match region.ping_ms {
+                                Some(ms) => format!("{} · {ms} ms", region.name),
+                                None => region.name.clone(),
+                            });
                     if server_picker_row(
                         ui,
                         &i18n.text("settings-region-auto"),
@@ -2065,15 +2155,13 @@ fn server_picker_modal(
                     .fill(ACCENT)
                     .min_size(egui::vec2(96.0, 28.0));
                     if ui.add(launch).clicked() {
-                        commands.push(AppCommand::LaunchOnServer(
-                            match focus.checked_sub(1) {
-                                None => String::new(),
-                                Some(index) => regions
-                                    .get(index)
-                                    .map(|region| region.url.clone())
-                                    .unwrap_or_default(),
-                            },
-                        ));
+                        commands.push(AppCommand::LaunchOnServer(match focus.checked_sub(1) {
+                            None => String::new(),
+                            Some(index) => regions
+                                .get(index)
+                                .map(|region| region.url.clone())
+                                .unwrap_or_default(),
+                        }));
                     }
                     ui.add_space(6.0);
                     let cancel = egui::Button::new(
@@ -2085,10 +2173,7 @@ fn server_picker_modal(
                         commands.push(AppCommand::CloseServerPicker);
                     }
                     ui.add_space(6.0);
-                    let refresh = ui.add_sized(
-                        [28.0, 28.0],
-                        egui::Button::new("").fill(BG_RAISED),
-                    );
+                    let refresh = ui.add_sized([28.0, 28.0], egui::Button::new("").fill(BG_RAISED));
                     if refresh.clicked() {
                         commands.push(AppCommand::LoadQueueStats);
                         commands.push(AppCommand::TestRegionLatency);
@@ -2125,8 +2210,10 @@ fn server_picker_row(
     badge: Option<&str>,
 ) -> bool {
     let height = if detail.is_some() { 34.0 } else { 26.0 };
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), height),
+        egui::Sense::click(),
+    );
     if !ui.is_rect_visible(rect) {
         return response.clicked();
     }
@@ -2242,7 +2329,12 @@ fn settings_tab_button(
             egui::pos2(rect.min.x + 16.0, rect.center().y),
             egui::vec2(13.0, 13.0),
         );
-        paint_stream_icon(painter, icon_rect, icon, if active { ACCENT } else { TEXT_DIM });
+        paint_stream_icon(
+            painter,
+            icon_rect,
+            icon,
+            if active { ACCENT } else { TEXT_DIM },
+        );
         painter.text(
             egui::pos2(rect.min.x + 30.0, rect.center().y),
             egui::Align2::LEFT_CENTER,
@@ -2255,7 +2347,9 @@ fn settings_tab_button(
             },
         );
     }
-    response.clicked().then_some(AppCommand::SetSettingsTab(tab))
+    response
+        .clicked()
+        .then_some(AppCommand::SetSettingsTab(tab))
 }
 
 fn settings_item(
@@ -2291,21 +2385,29 @@ fn settings_item(
     let header_response = ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.set_width((ui.available_width() - control_width).max(80.0));
-            ui.label(egui::RichText::new(i18n.text(info.label_key).as_ref()).size(12.5).strong());
+            ui.label(
+                egui::RichText::new(i18n.text(info.label_key).as_ref())
+                    .size(12.5)
+                    .strong(),
+            );
             if let Some(desc_key) = info.desc_key {
-                ui.label(egui::RichText::new(i18n.text(desc_key).as_ref()).size(9.5).color(TEXT_DIM));
+                ui.label(
+                    egui::RichText::new(i18n.text(desc_key).as_ref())
+                        .size(9.5)
+                        .color(TEXT_DIM),
+                );
             }
         });
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            match info.kind {
+        ui.with_layout(
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| match info.kind {
                 RowKind::Toggle(on) => {
                     let game_only = info.label_key == "settings-game-profile-heading";
-                    let can_toggle = !game_only || crate::gfn::stream_prefs::active_game().is_some();
+                    let can_toggle =
+                        !game_only || crate::gfn::stream_prefs::active_game().is_some();
                     let mut value = on;
-                    let response = ui.add_enabled(
-                        can_toggle,
-                        egui::Checkbox::without_text(&mut value),
-                    );
+                    let response =
+                        ui.add_enabled(can_toggle, egui::Checkbox::without_text(&mut value));
                     if response.changed() && can_toggle {
                         command = Some(AppCommand::ChooseSettingsOption(row, 0));
                     }
@@ -2319,22 +2421,42 @@ fn settings_item(
                         })
                         .to_string()
                     } else {
-                        crate::app::settings_menu::current_summary(tab, row, i18n, regions.list, i18n.locale())
+                        crate::app::settings_menu::current_summary(
+                            tab,
+                            row,
+                            i18n,
+                            regions.list,
+                            i18n.locale(),
+                        )
                     };
-                    let button = egui::Button::new(egui::RichText::new(format!("{summary}   ")).size(11.0))
-                        .fill(BG_RAISED)
-                        .min_size(egui::vec2(150.0, 28.0));
+                    let button =
+                        egui::Button::new(egui::RichText::new(format!("{summary}   ")).size(11.0))
+                            .fill(BG_RAISED)
+                            .min_size(egui::vec2(150.0, 28.0));
                     let button_response = ui.add(button);
                     if button_response.clicked() {
-                        command = Some(AppCommand::ExpandSettingsRow(if expanded { None } else { Some(row) }));
+                        command = Some(AppCommand::ExpandSettingsRow(if expanded {
+                            None
+                        } else {
+                            Some(row)
+                        }));
                     }
                     let chevron_rect = egui::Rect::from_center_size(
-                        egui::pos2(button_response.rect.max.x - 14.0, button_response.rect.center().y),
+                        egui::pos2(
+                            button_response.rect.max.x - 14.0,
+                            button_response.rect.center().y,
+                        ),
                         egui::vec2(12.0, 12.0),
                     );
-                    paint_stream_icon(ui.painter(), chevron_rect, StreamIcon::ChevronDown, TEXT_DIM);
+                    paint_stream_icon(
+                        ui.painter(),
+                        chevron_rect,
+                        StreamIcon::ChevronDown,
+                        TEXT_DIM,
+                    );
                     if info.kind == RowKind::Region {
-                        let test_btn = ui.add_sized([28.0, 28.0], egui::Button::new("").fill(BG_RAISED));
+                        let test_btn =
+                            ui.add_sized([28.0, 28.0], egui::Button::new("").fill(BG_RAISED));
                         if test_btn.clicked() {
                             command = Some(if regions.list.is_empty() {
                                 AppCommand::LoadRegions
@@ -2342,11 +2464,16 @@ fn settings_item(
                                 AppCommand::TestRegionLatency
                             });
                         }
-                        paint_stream_icon(ui.painter(), test_btn.rect.shrink(7.0), StreamIcon::Signal, ACCENT);
+                        paint_stream_icon(
+                            ui.painter(),
+                            test_btn.rect.shrink(7.0),
+                            StreamIcon::Signal,
+                            ACCENT,
+                        );
                     }
                 }
-            }
-        });
+            },
+        );
     });
 
     if focused {
@@ -2379,21 +2506,34 @@ fn settings_item(
                     i18n.locale(),
                 );
                 for option in 0..option_count {
-                    let label = crate::app::settings_menu::option_label(tab, row, option, i18n, regions.list);
+                    let label = crate::app::settings_menu::option_label(
+                        tab,
+                        row,
+                        option,
+                        i18n,
+                        regions.list,
+                    );
                     let is_current = option == current_index;
                     let is_focused = option == option_focus;
-                    let (rect, response) =
-                        ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), egui::Sense::click());
+                    let (rect, response) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), 26.0),
+                        egui::Sense::click(),
+                    );
                     if ui.is_rect_visible(rect) {
                         if is_focused {
-                            ui.painter().rect_filled(rect, 4.0, ACCENT.gamma_multiply(0.18));
+                            ui.painter()
+                                .rect_filled(rect, 4.0, ACCENT.gamma_multiply(0.18));
                         }
                         ui.painter().text(
                             egui::pos2(rect.min.x + 8.0, rect.center().y),
                             egui::Align2::LEFT_CENTER,
                             &label,
                             egui::FontId::proportional(11.5),
-                            if is_current { ACCENT } else { egui::Color32::WHITE },
+                            if is_current {
+                                ACCENT
+                            } else {
+                                egui::Color32::WHITE
+                            },
                         );
                         if is_current {
                             let check_rect = egui::Rect::from_center_size(
@@ -2403,13 +2543,11 @@ fn settings_item(
                             paint_stream_icon(ui.painter(), check_rect, StreamIcon::Check, ACCENT);
                         }
                         if info.kind == RowKind::Region && option > 0 {
-                            if let Some(best) = regions
-                                .list
-                                .iter()
-                                .filter_map(|r| r.ping_ms)
-                                .min()
+                            if let Some(best) = regions.list.iter().filter_map(|r| r.ping_ms).min()
                             {
-                                if regions.list.get(option - 1).and_then(|r| r.ping_ms) == Some(best) {
+                                if regions.list.get(option - 1).and_then(|r| r.ping_ms)
+                                    == Some(best)
+                                {
                                     ui.painter().text(
                                         egui::pos2(rect.max.x - 46.0, rect.center().y),
                                         egui::Align2::RIGHT_CENTER,
@@ -2483,8 +2621,16 @@ fn sort_picker(
     games: &[GameSummary],
 ) -> Option<AppCommand> {
     let mut command = None;
-    let label = text1(i18n, "catalog-sort-button", "sort", i18n.text(current.label_key()).as_ref());
-    let response = ui.add_sized([150.0, 30.0], egui::Button::new(label.as_ref()).fill(BG_RAISED));
+    let label = text1(
+        i18n,
+        "catalog-sort-button",
+        "sort",
+        i18n.text(current.label_key()).as_ref(),
+    );
+    let response = ui.add_sized(
+        [150.0, 30.0],
+        egui::Button::new(label.as_ref()).fill(BG_RAISED),
+    );
     let popup_id = ui.make_persistent_id("catalog_sort_popup");
     if response.clicked() {
         ui.memory_mut(|mem| mem.toggle_popup(popup_id));
@@ -2515,8 +2661,16 @@ fn sort_picker(
 // same as sort_picker but for my games / all games
 fn filter_picker(ui: &mut egui::Ui, i18n: &I18n, current: CatalogFilter) -> Option<AppCommand> {
     let mut command = None;
-    let label = text1(i18n, "catalog-filter-button", "filter", i18n.text(current.label_key()).as_ref());
-    let response = ui.add_sized([150.0, 30.0], egui::Button::new(label.as_ref()).fill(BG_RAISED));
+    let label = text1(
+        i18n,
+        "catalog-filter-button",
+        "filter",
+        i18n.text(current.label_key()).as_ref(),
+    );
+    let response = ui.add_sized(
+        [150.0, 30.0],
+        egui::Button::new(label.as_ref()).fill(BG_RAISED),
+    );
     let popup_id = ui.make_persistent_id("catalog_filter_popup");
     if response.clicked() {
         ui.memory_mut(|mem| mem.toggle_popup(popup_id));
@@ -2530,7 +2684,10 @@ fn filter_picker(ui: &mut egui::Ui, i18n: &I18n, current: CatalogFilter) -> Opti
             ui.set_min_width(170.0);
             for candidate in CatalogFilter::ALL {
                 let label = i18n.text(candidate.label_key());
-                if ui.selectable_label(candidate == current, label.as_ref()).clicked() {
+                if ui
+                    .selectable_label(candidate == current, label.as_ref())
+                    .clicked()
+                {
                     command = Some(AppCommand::SetFilter(candidate));
                 }
             }
@@ -2569,11 +2726,17 @@ fn title_list(ui: &mut egui::Ui, i18n: &I18n, view: &CatalogView<'_>) -> Vec<App
     if show_clear {
         const CLEAR_SIZE: f32 = 20.0;
         let clear_rect = egui::Rect::from_center_size(
-            egui::pos2(response.rect.right() - CLEAR_SIZE / 2.0 - 6.0, response.rect.center().y),
+            egui::pos2(
+                response.rect.right() - CLEAR_SIZE / 2.0 - 6.0,
+                response.rect.center().y,
+            ),
             egui::vec2(CLEAR_SIZE, CLEAR_SIZE),
         );
-        let clear_response =
-            ui.interact(clear_rect, ui.id().with("clear_search"), egui::Sense::click());
+        let clear_response = ui.interact(
+            clear_rect,
+            ui.id().with("clear_search"),
+            egui::Sense::click(),
+        );
         let color = if clear_response.hovered() {
             egui::Color32::WHITE
         } else {
@@ -2634,34 +2797,33 @@ fn title_list(ui: &mut egui::Ui, i18n: &I18n, view: &CatalogView<'_>) -> Vec<App
         ui.ctx().data(|d| d.get_temp::<usize>(selected_id)) != Some(view.selected);
 
     ui.scope(|ui| {
-    // `show_rows` lays rows out on a `row_height + item_spacing.y` pitch, so the virtual row
-    // geometry only lines up with what the rows actually occupy when the spacing is zero and the
-    // gap is painted inside the row rect instead.
-    ui.spacing_mut().item_spacing.y = 0.0;
+        // `show_rows` lays rows out on a `row_height + item_spacing.y` pitch, so the virtual row
+        // geometry only lines up with what the rows actually occupy when the spacing is zero and the
+        // gap is painted inside the row rect instead.
+        ui.spacing_mut().item_spacing.y = 0.0;
 
-    // Scrolling is driven from the selection index rather than from the selected row's
-    // `Response`: once the cursor steps past the last visible row that row is outside
-    // `row_range`, so it is never emitted, and a response-based `scroll_to_me` had nothing to
-    // scroll to - the list stayed frozen while the highlight kept moving.
-    let mut scroll_area = egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .drag_to_scroll(false);
-    if selection_changed {
-        let viewport_height = ui.available_height();
-        let row_top = view.selected as f32 * ROW_HEIGHT;
-        let current = ui
-            .ctx()
-            .data(|d| d.get_temp::<f32>(offset_id))
-            .unwrap_or(0.0);
-        let offset = current
-            .min(row_top)
-            .max(row_top + ROW_HEIGHT - viewport_height)
-            .max(0.0);
-        scroll_area = scroll_area.vertical_scroll_offset(offset);
-    }
+        // Scrolling is driven from the selection index rather than from the selected row's
+        // `Response`: once the cursor steps past the last visible row that row is outside
+        // `row_range`, so it is never emitted, and a response-based `scroll_to_me` had nothing to
+        // scroll to - the list stayed frozen while the highlight kept moving.
+        let mut scroll_area = egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .drag_to_scroll(false);
+        if selection_changed {
+            let viewport_height = ui.available_height();
+            let row_top = view.selected as f32 * ROW_HEIGHT;
+            let current = ui
+                .ctx()
+                .data(|d| d.get_temp::<f32>(offset_id))
+                .unwrap_or(0.0);
+            let offset = current
+                .min(row_top)
+                .max(row_top + ROW_HEIGHT - viewport_height)
+                .max(0.0);
+            scroll_area = scroll_area.vertical_scroll_offset(offset);
+        }
 
-    let output = scroll_area
-        .show_rows(ui, ROW_HEIGHT, total, |ui, row_range| {
+        let output = scroll_area.show_rows(ui, ROW_HEIGHT, total, |ui, row_range| {
             let painter = ui.painter().clone();
             for row in row_range {
                 let Some(&game_index) = view.filtered_indices.get(row) else {
@@ -2755,8 +2917,7 @@ fn title_list(ui: &mut egui::Ui, i18n: &I18n, view: &CatalogView<'_>) -> Vec<App
                     game.title.clone(),
                     egui::TextFormat::simple(font_id.clone(), text_color),
                 );
-                job.wrap =
-                    egui::text::TextWrapping::truncate_at_width(rect.max.x - text_x - 8.0);
+                job.wrap = egui::text::TextWrapping::truncate_at_width(rect.max.x - text_x - 8.0);
                 let galley = painter.layout_job(job);
                 painter.galley(
                     egui::pos2(text_x, rect.center().y - galley.size().y / 2.0),
@@ -2785,10 +2946,10 @@ fn title_list(ui: &mut egui::Ui, i18n: &I18n, view: &CatalogView<'_>) -> Vec<App
             }
         });
 
-    ui.ctx().data_mut(|d| {
-        d.insert_temp(offset_id, output.state.offset.y);
-        d.insert_temp(selected_id, view.selected);
-    });
+        ui.ctx().data_mut(|d| {
+            d.insert_temp(offset_id, output.state.offset.y);
+            d.insert_temp(selected_id, view.selected);
+        });
     });
 
     commands
@@ -2896,7 +3057,11 @@ fn detail_panel(
                 Some(date) => text1(i18n, "detail-last-played", "date", short_date(date)),
                 None => i18n.text("detail-never-played"),
             };
-            ui.label(egui::RichText::new(played.as_ref()).size(11.0).color(TEXT_DIM));
+            ui.label(
+                egui::RichText::new(played.as_ref())
+                    .size(11.0)
+                    .color(TEXT_DIM),
+            );
             ui.add_space(2.0);
             ui.label(
                 egui::RichText::new(text1(i18n, "detail-app-id", "id", &game.app_id).as_ref())
@@ -2942,8 +3107,7 @@ fn detail_panel(
 /// The big green PLAY button, hand-painted so it can carry a vertical gradient - egui's `Button`
 /// only does flat fills.
 fn play_button(ui: &mut egui::Ui, i18n: &I18n) -> bool {
-    let (rect, response) =
-        ui.allocate_exact_size(egui::vec2(200.0, 44.0), egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(200.0, 44.0), egui::Sense::click());
     let painter = ui.painter();
 
     let boost = if response.is_pointer_button_down_on() {
@@ -3019,7 +3183,9 @@ fn draw_panel_backdrop(
         return;
     }
 
-    let tex = image.texture(ctx, || CoverStore::texture_key(&game.app_id, CoverSize::Cover));
+    let tex = image.texture(ctx, || {
+        CoverStore::texture_key(&game.app_id, CoverSize::Cover)
+    });
     let tex_size = tex.size_vec2();
     let src_aspect = tex_size.x / tex_size.y.max(1.0);
     let dst_aspect = rect.width() / rect.height();
@@ -3031,8 +3197,12 @@ fn draw_panel_backdrop(
         egui::Rect::from_min_max(egui::pos2(0.0, inset), egui::pos2(1.0, 1.0 - inset))
     };
 
-    ui.painter()
-        .image(tex.id(), rect, uv, egui::Color32::from_white_alpha(BACKDROP_ALPHA));
+    ui.painter().image(
+        tex.id(),
+        rect,
+        uv,
+        egui::Color32::from_white_alpha(BACKDROP_ALPHA),
+    );
 }
 
 /// Trims an ISO-8601 timestamp down to its `YYYY-MM-DD` date part.
@@ -3398,7 +3568,11 @@ fn launch_header(
 
 /// Three numbered dots joined by rails, filled up to `stage`.
 fn launch_stepper(ui: &mut egui::Ui, i18n: &I18n, stage: LaunchStage, queue_skipped: bool) {
-    const LABELS: [&str; 3] = ["session-step-queue", "session-step-setup", "session-step-ready"];
+    const LABELS: [&str; 3] = [
+        "session-step-queue",
+        "session-step-setup",
+        "session-step-ready",
+    ];
 
     let width = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(
@@ -3458,7 +3632,11 @@ fn launch_stepper(ui: &mut egui::Ui, i18n: &I18n, stage: LaunchStage, queue_skip
             egui::Align2::CENTER_CENTER,
             i18n.text(LABELS[step]),
             egui::FontId::proportional(10.0),
-            if reached { egui::Color32::WHITE } else { TEXT_DIM },
+            if reached {
+                egui::Color32::WHITE
+            } else {
+                TEXT_DIM
+            },
         );
     }
 }
@@ -3612,7 +3790,8 @@ fn confirm_exit_modal(ctx: &egui::Context, i18n: &I18n) -> Option<AppCommand> {
                     if ui
                         .add(
                             egui::Button::new(
-                                egui::RichText::new(i18n.text("exit-confirm").as_ref()).color(DANGER),
+                                egui::RichText::new(i18n.text("exit-confirm").as_ref())
+                                    .color(DANGER),
                             )
                             .fill(BG_RAISED),
                         )
@@ -3654,12 +3833,14 @@ fn streaming_screen(
                 ui.add_space(16.0);
                 match game {
                     Some(game) => ui.heading(
-                        egui::RichText::new(text1(i18n, "streaming-game", "game", &game.title).as_ref())
-                            .size(18.0),
+                        egui::RichText::new(
+                            text1(i18n, "streaming-game", "game", &game.title).as_ref(),
+                        )
+                        .size(18.0),
                     ),
-                    None => {
-                        ui.heading(egui::RichText::new(i18n.text("streaming-generic").as_ref()).size(18.0))
-                    }
+                    None => ui.heading(
+                        egui::RichText::new(i18n.text("streaming-generic").as_ref()).size(18.0),
+                    ),
                 };
                 ui.add_space(12.0);
                 ui.label(
@@ -3681,15 +3862,32 @@ fn streaming_screen(
 
         // Deliberately *not* registered with `reserve_stream_touch`: that would hand them back to
         // egui, and these are driven by the stream touch router instead.
-        if has_video && crate::gfn::stream_prefs::stick_zones().is_visible() {
+        if has_video
+            && crate::gfn::stream_prefs::stick_zones().is_visible()
+            && !crate::gfn::stream_prefs::pc_overlay_enabled()
+        {
             let screen = ui.ctx().screen_rect();
             let painter = ui.painter();
             let top = screen.min.y + screen.height() * crate::input::STICK_ZONE_TOP;
             let width = screen.width() * crate::input::STICK_ZONE_WIDTH;
             for (label, left) in [("L3", true), ("R3", false)] {
                 let rect = egui::Rect::from_min_max(
-                    egui::pos2(if left { screen.min.x } else { screen.max.x - width }, top),
-                    egui::pos2(if left { screen.min.x + width } else { screen.max.x }, screen.max.y),
+                    egui::pos2(
+                        if left {
+                            screen.min.x
+                        } else {
+                            screen.max.x - width
+                        },
+                        top,
+                    ),
+                    egui::pos2(
+                        if left {
+                            screen.min.x + width
+                        } else {
+                            screen.max.x
+                        },
+                        screen.max.y,
+                    ),
                 );
                 painter.rect_filled(
                     rect,
@@ -3702,6 +3900,36 @@ fn streaming_screen(
                     label,
                     egui::FontId::proportional(26.0),
                     egui::Color32::from_rgba_unmultiplied(255, 255, 255, 130),
+                );
+            }
+        }
+
+        if has_video && crate::gfn::stream_prefs::pc_overlay_enabled() {
+            let screen = ui.ctx().screen_rect();
+            let painter = ui.painter();
+            let alpha = crate::gfn::stream_prefs::overlay_opacity().alpha();
+            for (_zone, label, (x0, y0, x1, y1)) in crate::input::overlay_zone_rects() {
+                let rect = egui::Rect::from_min_max(
+                    egui::pos2(
+                        screen.min.x + screen.width() * x0,
+                        screen.min.y + screen.height() * y0,
+                    ),
+                    egui::pos2(
+                        screen.min.x + screen.width() * x1,
+                        screen.min.y + screen.height() * y1,
+                    ),
+                );
+                painter.rect_filled(
+                    rect,
+                    6.0_f32,
+                    egui::Color32::from_rgba_unmultiplied(200, 140, 40, alpha),
+                );
+                painter.text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    egui::FontId::proportional(20.0),
+                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha.saturating_add(60)),
                 );
             }
         }
@@ -3747,7 +3975,12 @@ fn streaming_screen(
                                     egui::vec2(14.0, 14.0),
                                     egui::Sense::hover(),
                                 );
-                                paint_stream_icon(ui.painter(), icon_rect, StreamIcon::Clock, timer_color);
+                                paint_stream_icon(
+                                    ui.painter(),
+                                    icon_rect,
+                                    StreamIcon::Clock,
+                                    timer_color,
+                                );
 
                                 ui.label(
                                     egui::RichText::new(&timer_text)
@@ -3826,7 +4059,11 @@ fn streaming_screen(
                     let mouse = stream_icon_button(
                         ui,
                         StreamIcon::Mouse,
-                        if mouse_trackpad_enabled { ACCENT } else { TEXT_DIM },
+                        if mouse_trackpad_enabled {
+                            ACCENT
+                        } else {
+                            TEXT_DIM
+                        },
                     );
                     reserve_stream_touch(ui.ctx(), mouse.rect);
                     if mouse.clicked() {
@@ -3918,7 +4155,9 @@ fn stream_controls_modal(ctx: &egui::Context, i18n: &I18n) -> Option<AppCommand>
                 ui,
                 i18n,
                 "settings-trigger-heading",
-                crate::gfn::stream_prefs::TriggerIntensity::ALL.iter().copied(),
+                crate::gfn::stream_prefs::TriggerIntensity::ALL
+                    .iter()
+                    .copied(),
                 crate::gfn::stream_prefs::trigger_intensity(),
                 |candidate| format!("{}%", u32::from(candidate.value()) * 100 / 255),
             ) {
@@ -3961,10 +4200,7 @@ fn stream_controls_modal(ctx: &egui::Context, i18n: &I18n) -> Option<AppCommand>
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mut value = crate::gfn::stream_prefs::trigger_swap_enabled();
-                    if ui
-                        .add(egui::Checkbox::without_text(&mut value))
-                        .changed()
-                    {
+                    if ui.add(egui::Checkbox::without_text(&mut value)).changed() {
                         command = Some(AppCommand::ToggleTriggerSwap);
                     }
                 });
@@ -4005,52 +4241,80 @@ fn keyboard_layout() -> [Vec<(KeyCap, f32)>; 6] {
     [
         vec![
             (KeyCap::Key("Esc", KEY_ESCAPE), 1.0),
-            (KeyCap::Key("F1", KEY_F1), 1.0), (KeyCap::Key("F2", KEY_F2), 1.0),
-            (KeyCap::Key("F3", KEY_F3), 1.0), (KeyCap::Key("F4", KEY_F4), 1.0),
-            (KeyCap::Key("F5", KEY_F5), 1.0), (KeyCap::Key("F6", KEY_F6), 1.0),
-            (KeyCap::Key("F7", KEY_F7), 1.0), (KeyCap::Key("F8", KEY_F8), 1.0),
-            (KeyCap::Key("F9", KEY_F9), 1.0), (KeyCap::Key("F10", KEY_F10), 1.0),
-            (KeyCap::Key("F11", KEY_F11), 1.0), (KeyCap::Key("F12", KEY_F12), 1.0),
+            (KeyCap::Key("F1", KEY_F1), 1.0),
+            (KeyCap::Key("F2", KEY_F2), 1.0),
+            (KeyCap::Key("F3", KEY_F3), 1.0),
+            (KeyCap::Key("F4", KEY_F4), 1.0),
+            (KeyCap::Key("F5", KEY_F5), 1.0),
+            (KeyCap::Key("F6", KEY_F6), 1.0),
+            (KeyCap::Key("F7", KEY_F7), 1.0),
+            (KeyCap::Key("F8", KEY_F8), 1.0),
+            (KeyCap::Key("F9", KEY_F9), 1.0),
+            (KeyCap::Key("F10", KEY_F10), 1.0),
+            (KeyCap::Key("F11", KEY_F11), 1.0),
+            (KeyCap::Key("F12", KEY_F12), 1.0),
             (KeyCap::Key("Home", KEY_HOME), 1.0),
             (KeyCap::Key("End", KEY_END), 1.0),
         ],
         vec![
             (KeyCap::Char('`', '~'), 1.0),
-            (KeyCap::Char('1', '!'), 1.0), (KeyCap::Char('2', '@'), 1.0),
-            (KeyCap::Char('3', '#'), 1.0), (KeyCap::Char('4', '$'), 1.0),
-            (KeyCap::Char('5', '%'), 1.0), (KeyCap::Char('6', '^'), 1.0),
-            (KeyCap::Char('7', '&'), 1.0), (KeyCap::Char('8', '*'), 1.0),
-            (KeyCap::Char('9', '('), 1.0), (KeyCap::Char('0', ')'), 1.0),
-            (KeyCap::Char('-', '_'), 1.0), (KeyCap::Char('=', '+'), 1.0),
+            (KeyCap::Char('1', '!'), 1.0),
+            (KeyCap::Char('2', '@'), 1.0),
+            (KeyCap::Char('3', '#'), 1.0),
+            (KeyCap::Char('4', '$'), 1.0),
+            (KeyCap::Char('5', '%'), 1.0),
+            (KeyCap::Char('6', '^'), 1.0),
+            (KeyCap::Char('7', '&'), 1.0),
+            (KeyCap::Char('8', '*'), 1.0),
+            (KeyCap::Char('9', '('), 1.0),
+            (KeyCap::Char('0', ')'), 1.0),
+            (KeyCap::Char('-', '_'), 1.0),
+            (KeyCap::Char('=', '+'), 1.0),
             (KeyCap::Backspace, 2.0),
         ],
         vec![
             (KeyCap::Key("Tab", KEY_TAB), 1.5),
-            (KeyCap::Char('q', 'Q'), 1.0), (KeyCap::Char('w', 'W'), 1.0),
-            (KeyCap::Char('e', 'E'), 1.0), (KeyCap::Char('r', 'R'), 1.0),
-            (KeyCap::Char('t', 'T'), 1.0), (KeyCap::Char('y', 'Y'), 1.0),
-            (KeyCap::Char('u', 'U'), 1.0), (KeyCap::Char('i', 'I'), 1.0),
-            (KeyCap::Char('o', 'O'), 1.0), (KeyCap::Char('p', 'P'), 1.0),
-            (KeyCap::Char('[', '{'), 1.0), (KeyCap::Char(']', '}'), 1.0),
+            (KeyCap::Char('q', 'Q'), 1.0),
+            (KeyCap::Char('w', 'W'), 1.0),
+            (KeyCap::Char('e', 'E'), 1.0),
+            (KeyCap::Char('r', 'R'), 1.0),
+            (KeyCap::Char('t', 'T'), 1.0),
+            (KeyCap::Char('y', 'Y'), 1.0),
+            (KeyCap::Char('u', 'U'), 1.0),
+            (KeyCap::Char('i', 'I'), 1.0),
+            (KeyCap::Char('o', 'O'), 1.0),
+            (KeyCap::Char('p', 'P'), 1.0),
+            (KeyCap::Char('[', '{'), 1.0),
+            (KeyCap::Char(']', '}'), 1.0),
             (KeyCap::Char('\\', '|'), 1.5),
         ],
         vec![
             (KeyCap::Key("Caps", KEY_CAPS_LOCK), 1.75),
-            (KeyCap::Char('a', 'A'), 1.0), (KeyCap::Char('s', 'S'), 1.0),
-            (KeyCap::Char('d', 'D'), 1.0), (KeyCap::Char('f', 'F'), 1.0),
-            (KeyCap::Char('g', 'G'), 1.0), (KeyCap::Char('h', 'H'), 1.0),
-            (KeyCap::Char('j', 'J'), 1.0), (KeyCap::Char('k', 'K'), 1.0),
-            (KeyCap::Char('l', 'L'), 1.0), (KeyCap::Char(';', ':'), 1.0),
+            (KeyCap::Char('a', 'A'), 1.0),
+            (KeyCap::Char('s', 'S'), 1.0),
+            (KeyCap::Char('d', 'D'), 1.0),
+            (KeyCap::Char('f', 'F'), 1.0),
+            (KeyCap::Char('g', 'G'), 1.0),
+            (KeyCap::Char('h', 'H'), 1.0),
+            (KeyCap::Char('j', 'J'), 1.0),
+            (KeyCap::Char('k', 'K'), 1.0),
+            (KeyCap::Char('l', 'L'), 1.0),
+            (KeyCap::Char(';', ':'), 1.0),
             (KeyCap::Char('\'', '"'), 1.0),
             (KeyCap::Enter, 2.25),
         ],
         vec![
             (KeyCap::Shift, 2.25),
-            (KeyCap::Char('z', 'Z'), 1.0), (KeyCap::Char('x', 'X'), 1.0),
-            (KeyCap::Char('c', 'C'), 1.0), (KeyCap::Char('v', 'V'), 1.0),
-            (KeyCap::Char('b', 'B'), 1.0), (KeyCap::Char('n', 'N'), 1.0),
-            (KeyCap::Char('m', 'M'), 1.0), (KeyCap::Char(',', '<'), 1.0),
-            (KeyCap::Char('.', '>'), 1.0), (KeyCap::Char('/', '?'), 1.0),
+            (KeyCap::Char('z', 'Z'), 1.0),
+            (KeyCap::Char('x', 'X'), 1.0),
+            (KeyCap::Char('c', 'C'), 1.0),
+            (KeyCap::Char('v', 'V'), 1.0),
+            (KeyCap::Char('b', 'B'), 1.0),
+            (KeyCap::Char('n', 'N'), 1.0),
+            (KeyCap::Char('m', 'M'), 1.0),
+            (KeyCap::Char(',', '<'), 1.0),
+            (KeyCap::Char('.', '>'), 1.0),
+            (KeyCap::Char('/', '?'), 1.0),
             (KeyCap::Shift, 2.75),
         ],
         vec![
@@ -4061,8 +4325,10 @@ fn keyboard_layout() -> [Vec<(KeyCap, f32)>; 6] {
             (KeyCap::Key("AltGr", KEY_RIGHT_ALT), 1.0),
             (KeyCap::Key("Menu", KEY_MENU), 1.0),
             (KeyCap::Key("Ctrl", KEY_RIGHT_CTRL), 1.0),
-            (KeyCap::Key("<", KEY_LEFT), 1.0), (KeyCap::Key("^", KEY_UP), 1.0),
-            (KeyCap::Key("v", KEY_DOWN), 1.0), (KeyCap::Key(">", KEY_RIGHT), 1.0),
+            (KeyCap::Key("<", KEY_LEFT), 1.0),
+            (KeyCap::Key("^", KEY_UP), 1.0),
+            (KeyCap::Key("v", KEY_DOWN), 1.0),
+            (KeyCap::Key(">", KEY_RIGHT), 1.0),
         ],
     ]
 }
@@ -4088,15 +4354,21 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                     let inner_width = panel_rect.width() - KEYBOARD_PADDING * 2.0;
                     let unit_width = keyboard_unit_width(inner_width);
                     ui.set_width(inner_width);
-                    ui.spacing_mut().item_spacing = egui::vec2(KEYBOARD_CAP_SPACING, KEYBOARD_CAP_SPACING);
+                    ui.spacing_mut().item_spacing =
+                        egui::vec2(KEYBOARD_CAP_SPACING, KEYBOARD_CAP_SPACING);
 
                     for row in keyboard_layout() {
                         ui.horizontal(|ui| {
                             for (cap, units) in row {
                                 let (label, active) = match &cap {
-                                    KeyCap::Char(lower, upper) => {
-                                        (if shift { upper.to_string() } else { lower.to_string() }, false)
-                                    }
+                                    KeyCap::Char(lower, upper) => (
+                                        if shift {
+                                            upper.to_string()
+                                        } else {
+                                            lower.to_string()
+                                        },
+                                        false,
+                                    ),
                                     KeyCap::Key(label, _) => (label.to_string(), false),
                                     KeyCap::Backspace => ("Bksp".to_string(), false),
                                     KeyCap::Enter => ("Enter".to_string(), false),
@@ -4106,16 +4378,14 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     KeyCap::Alt => ("Alt".to_string(), alt),
                                 };
                                 let width = keyboard_key_width(units, unit_width);
-                                let mut button = egui::Button::new(
-                                    egui::RichText::new(label).size(11.0),
-                                );
+                                let mut button =
+                                    egui::Button::new(egui::RichText::new(label).size(11.0));
                                 button = if active {
                                     button.fill(ACCENT.gamma_multiply(0.35))
                                 } else {
                                     button.fill(BG_RAISED)
                                 };
-                                let response =
-                                    ui.add_sized([width, KEYBOARD_CAP_SIZE.y], button);
+                                let response = ui.add_sized([width, KEYBOARD_CAP_SIZE.y], button);
                                 if !response.clicked() {
                                     continue;
                                 }
@@ -4124,7 +4394,12 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                         let ch = if shift { upper } else { lower };
                                         if let Some(key) = key_for_char(ch) {
                                             commands.push(if ctrl || alt {
-                                                AppCommand::SendChord { ctrl, alt, key }
+                                                AppCommand::SendChord {
+                                                    ctrl,
+                                                    alt,
+                                                    win: false,
+                                                    key,
+                                                }
                                             } else {
                                                 AppCommand::SendKey(key)
                                             });
@@ -4132,7 +4407,12 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     }
                                     KeyCap::Key(_, key) => {
                                         commands.push(if ctrl || alt {
-                                            AppCommand::SendChord { ctrl, alt, key }
+                                            AppCommand::SendChord {
+                                                ctrl,
+                                                alt,
+                                                win: false,
+                                                key,
+                                            }
                                         } else {
                                             AppCommand::SendKey(key)
                                         });
@@ -4140,7 +4420,12 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     KeyCap::Backspace => {
                                         let key = crate::gfn::input_protocol::KEY_BACKSPACE;
                                         commands.push(if ctrl || alt {
-                                            AppCommand::SendChord { ctrl, alt, key }
+                                            AppCommand::SendChord {
+                                                ctrl,
+                                                alt,
+                                                win: false,
+                                                key,
+                                            }
                                         } else {
                                             AppCommand::SendKey(key)
                                         });
@@ -4148,7 +4433,12 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     KeyCap::Enter => {
                                         let key = crate::gfn::input_protocol::KEY_ENTER;
                                         commands.push(if ctrl || alt {
-                                            AppCommand::SendChord { ctrl, alt, key }
+                                            AppCommand::SendChord {
+                                                ctrl,
+                                                alt,
+                                                win: false,
+                                                key,
+                                            }
                                         } else {
                                             AppCommand::SendKey(key)
                                         });
@@ -4156,7 +4446,12 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     KeyCap::Space => {
                                         let key = crate::gfn::input_protocol::KEY_SPACE;
                                         commands.push(if ctrl || alt {
-                                            AppCommand::SendChord { ctrl, alt, key }
+                                            AppCommand::SendChord {
+                                                ctrl,
+                                                alt,
+                                                win: false,
+                                                key,
+                                            }
                                         } else {
                                             AppCommand::SendKey(key)
                                         });
@@ -4325,13 +4620,11 @@ fn draw_qr(ui: &mut egui::Ui, verification_uri: &str, target_size: f32) {
     }
 }
 
-
-
 #[cfg(test)]
 mod error_presentation_tests {
     use super::{
-        keyboard_key_width, keyboard_layout, keyboard_panel_rect, keyboard_unit_width,
-        legacy_error_keys, KEYBOARD_CAP_SPACING, KEYBOARD_COLUMNS, KEYBOARD_PADDING,
+        KEYBOARD_CAP_SPACING, KEYBOARD_COLUMNS, KEYBOARD_PADDING, keyboard_key_width,
+        keyboard_layout, keyboard_panel_rect, keyboard_unit_width, legacy_error_keys,
     };
     use crate::gfn::error_codes::GfnErrorCode;
 
@@ -4359,7 +4652,10 @@ mod error_presentation_tests {
             classify("HTTP 401 Unauthorized: session token invalid"),
             "auth"
         );
-        assert_eq!(classify("Your session expired. Please sign in again."), "auth");
+        assert_eq!(
+            classify("Your session expired. Please sign in again."),
+            "auth"
+        );
     }
 
     #[test]

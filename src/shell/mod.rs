@@ -7,9 +7,10 @@ mod surface;
 use crate::app::ui::build_ui;
 use crate::app::{App, AppState};
 use crate::input::{
+    PcOverlayAction, PcOverlayTouch, RearOverlayMouse, RearTouchTriggers, StreamTouchState,
     front_touch_position, gamepad_snapshot, held_menu_direction, map_controller_button_event,
-    map_keyboard_event, map_pointer_event, open_first_controller,
-    register_vita_controller_mapping, RearTouchTriggers, StreamTouchState,
+    map_keyboard_event, map_pointer_event, mask_overlay_dpad_updown, open_first_controller,
+    register_vita_controller_mapping,
 };
 use crate::streaming::audio::AudioRenderer;
 use anyhow::{Context, Result};
@@ -209,8 +210,7 @@ pub async fn run(mut app: App) -> Result<()> {
     let mut controller = open_first_controller(&game_controller_subsystem);
     let mut event_pump = sdl.event_pump().map_err(anyhow::Error::msg)?;
     let mut surface = VitaSurface::new(&video)?;
-    let _audio_renderer =
-        AudioRenderer::new(&audio).context("failed to set up audio renderer")?;
+    let _audio_renderer = AudioRenderer::new(&audio).context("failed to set up audio renderer")?;
     let egui_ctx = egui::Context::default();
     crate::app::fonts::configure(&egui_ctx);
     crate::app::ui::apply_theme(&egui_ctx);
@@ -225,6 +225,9 @@ pub async fn run(mut app: App) -> Result<()> {
     let mut stream_touch = StreamTouchState::default();
     let mut rear_touch = RearTouchTriggers::default();
     let mut stick_zones = crate::input::FrontStickZones::default();
+    let mut pc_overlay_touch = PcOverlayTouch::default();
+    let mut rear_overlay_mouse = RearOverlayMouse::default();
+    let mut touch_owned_by_overlay = false;
     let mut was_streaming = false;
     let mut frame_stats = FrameStats::default();
     crate::logger::reset_frame_stats_log();
@@ -270,6 +273,58 @@ pub async fn run(mut app: App) -> Result<()> {
             }
             rear_touch.handle(&event);
             stick_zones.handle(&event);
+            let overlay_enabled = crate::gfn::stream_prefs::pc_overlay_enabled();
+            if overlay_enabled {
+                for action in pc_overlay_touch.handle(&event) {
+                    match action {
+                        PcOverlayAction::Key(crate::input::PcOverlayZone::Esc) => {
+                            direct_commands.push(crate::input::AppCommand::SendKey(
+                                crate::gfn::input_protocol::KEY_ESCAPE,
+                            ));
+                        }
+                        PcOverlayAction::Key(crate::input::PcOverlayZone::Enter) => {
+                            direct_commands.push(crate::input::AppCommand::SendKey(
+                                crate::gfn::input_protocol::KEY_ENTER,
+                            ));
+                        }
+                        PcOverlayAction::Key(_) => {}
+                        PcOverlayAction::OpenSettings => {
+                            direct_commands.push(crate::input::AppCommand::OpenSettings);
+                        }
+                        PcOverlayAction::Click { right, pressed } => {
+                            use crate::gfn::input_protocol::{
+                                MouseButton as StreamMouseButton, MouseEvent,
+                            };
+                            stream_mouse_events.push(MouseEvent::Button {
+                                button: if right {
+                                    StreamMouseButton::Right
+                                } else {
+                                    StreamMouseButton::Left
+                                },
+                                pressed,
+                            });
+                        }
+                        PcOverlayAction::DpiDelta(dy) => {
+                            // A full drag across the slider's ~0.32 tall band swings roughly
+                            // -100%..+100% of the current sensitivity, so quick nudges (a few
+                            // percent of the panel height) stay fine-grained.
+                            let delta_percent = (dy * 300.0).round() as i32;
+                            crate::gfn::stream_prefs::adjust_overlay_sensitivity_percent(
+                                delta_percent,
+                            );
+                        }
+                        PcOverlayAction::ScrollDelta(dy) => {
+                            use crate::gfn::input_protocol::MouseEvent;
+                            // Finger down = content should follow it, i.e. scroll down, which is
+                            // a *negative* wheel delta in the ±120 WHEEL_DELTA convention.
+                            let delta = (-dy * 900.0).clamp(-1200.0, 1200.0) as i16;
+                            if delta != 0 {
+                                stream_mouse_events.push(MouseEvent::WheelBy { delta });
+                            }
+                        }
+                    }
+                }
+            }
             // Ownership of a touch is decided once, on finger-down, and the rest of the gesture
             // follows it. Deciding per-event would let a drag that starts on the game and ends on
             // the button swallow the mouse-up, leaving the host holding the button down.
@@ -284,21 +339,81 @@ pub async fn run(mut app: App) -> Result<()> {
             if let sdl2::event::Event::FingerDown { touch_id, x, y, .. } = event
                 && touch_id == crate::input::FRONT_TOUCH_DEVICE_ID
             {
+                touch_owned_by_overlay = touch_drives_stream
+                    && !touch_owned_by_ui
+                    && overlay_enabled
+                    && crate::input::overlay_zone_at(x, y).is_some();
+                // Mutually exclusive with the PC overlay by construction: while the overlay is
+                // on, its click corners occupy the exact same geometry `FrontStickZones` uses for
+                // L3/R3 (see `overlay_zone_at`), so the stick zones are simply turned off here
+                // rather than fighting over the same touch.
                 touch_owned_by_stick_zone = touch_drives_stream
                     && !touch_owned_by_ui
+                    && !overlay_enabled
                     && crate::gfn::stream_prefs::stick_zones().is_active()
                     && crate::input::is_in_stick_zone(x, y);
                 crate::input::stick_zone_stats::record_touch_owned(touch_owned_by_stick_zone);
             }
 
-            if touch_owned_by_stick_zone {
-                // Already fed to `stick_zones` above; it must not also drive the host cursor.
-            } else if touch_drives_stream && !touch_owned_by_ui && app.mouse_trackpad_enabled {
+            if touch_owned_by_overlay || touch_owned_by_stick_zone {
+                // Already fed to `pc_overlay_touch`/`stick_zones` above; must not also drive the
+                // host cursor.
+            } else if touch_drives_stream
+                && !touch_owned_by_ui
+                && app.mouse_trackpad_enabled
+                && !overlay_enabled
+            {
                 stream_mouse_events.extend(stream_touch.map(&event, stream_size));
+            } else if overlay_enabled && touch_drives_stream && !touch_owned_by_ui {
+                // The overlay's own trackpad lives on the rear panel; the front screen no longer
+                // drives the cursor while it is on (its centre is simply dead space for mouse
+                // purposes, matching the "still mouse" test in `pc_overlay_tests`, i.e. it does
+                // not fall into a fixed zone and does not reach the game either).
             } else if let Some(egui_event) =
                 map_pointer_event(&event, screen_points, UI_SCALE, &mut pointer_pos)
             {
                 egui_events.push(egui_event);
+            }
+            if overlay_enabled && touch_drives_stream {
+                let sniper = controller
+                    .as_ref()
+                    .is_some_and(|c| c.button(sdl2::controller::Button::LeftShoulder));
+                let base_percent = crate::gfn::stream_prefs::overlay_sensitivity_percent();
+                let effective_percent = if sniper {
+                    base_percent / 2
+                } else {
+                    base_percent
+                };
+                if let Some(mouse_event) =
+                    rear_overlay_mouse.map(&event, stream_size, effective_percent)
+                {
+                    stream_mouse_events.push(mouse_event);
+                }
+                if let sdl2::event::Event::ControllerButtonDown { button, .. } = event {
+                    match button {
+                        sdl2::controller::Button::Back => {
+                            direct_commands.push(crate::input::AppCommand::ToggleKeyboard);
+                        }
+                        sdl2::controller::Button::DPadUp => {
+                            direct_commands.push(crate::input::AppCommand::SendChord {
+                                ctrl: false,
+                                alt: false,
+                                win: true,
+                                key: crate::gfn::input_protocol::key_for_char('d')
+                                    .expect("'d' is a mapped ASCII key"),
+                            });
+                        }
+                        sdl2::controller::Button::DPadDown => {
+                            direct_commands.push(crate::input::AppCommand::SendChord {
+                                ctrl: true,
+                                alt: true,
+                                win: false,
+                                key: crate::gfn::input_protocol::KEY_DELETE,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
             }
             match event {
                 sdl2::event::Event::TextInput { ref text, .. } => {
@@ -369,7 +484,29 @@ pub async fn run(mut app: App) -> Result<()> {
             let latest_video = streaming_peer.and_then(|peer| peer.video_frame());
             surface.sync_video_frame(streaming_peer, latest_video.as_ref())?;
             if let (Some(peer), Some(active_controller)) = (streaming_peer, controller.as_ref()) {
-                peer.send_gamepad(gamepad_snapshot(active_controller, &rear_touch, &stick_zones));
+                let overlay_active = crate::gfn::stream_prefs::pc_overlay_enabled();
+                // While the overlay is on, the front stick zones and rear L2/R2 triggers are
+                // mutually exclusive with it (see the touch-routing block above and
+                // `PcOverlayZone`'s doc comment): rather than reach into either struct's private
+                // finger state, a fresh/default instance is fed to the snapshot instead, so their
+                // real state is preserved untouched for whenever the overlay is switched off
+                // again mid-session.
+                let neutral_rear_touch = RearTouchTriggers::default();
+                let neutral_stick_zones = crate::input::FrontStickZones::default();
+                let (rear_for_gamepad, sticks_for_gamepad) = if overlay_active {
+                    (&neutral_rear_touch, &neutral_stick_zones)
+                } else {
+                    (&rear_touch, &stick_zones)
+                };
+                let mut gamepad =
+                    gamepad_snapshot(active_controller, rear_for_gamepad, sticks_for_gamepad);
+                if overlay_active {
+                    // D-Pad Up/Down are repurposed as the Win+D / Ctrl+Alt+Del macros above; they
+                    // must stop reaching the game so a menu behind the overlay does not also see
+                    // ordinary D-Pad input for the same button press.
+                    gamepad.buttons = mask_overlay_dpad_updown(gamepad.buttons);
+                }
+                peer.send_gamepad(gamepad);
                 crate::input::stick_zone_stats::record_clicks(
                     stick_zones.left_stick_click(),
                     stick_zones.right_stick_click(),
@@ -457,7 +594,12 @@ pub async fn run(mut app: App) -> Result<()> {
             &clipped_primitives,
             &full_output.textures_delta,
         )?;
-        frame_stats.record(tick_elapsed, build_ui_elapsed, tessellate_elapsed, paint_stats);
+        frame_stats.record(
+            tick_elapsed,
+            build_ui_elapsed,
+            tessellate_elapsed,
+            paint_stats,
+        );
         let frame_deadline = loop_started_at + TARGET_FRAME_TIME;
         let remaining = frame_deadline.saturating_duration_since(Instant::now());
         if !remaining.is_zero() {

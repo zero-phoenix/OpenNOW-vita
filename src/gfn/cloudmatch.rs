@@ -186,8 +186,8 @@ pub async fn report_session_ad(
         .text()
         .await
         .context("failed to read ad update response body")?;
-    let payload: CloudMatchResponse = serde_json::from_str(&body_text)
-        .context("failed to decode ad update response")?;
+    let payload: CloudMatchResponse =
+        serde_json::from_str(&body_text).context("failed to decode ad update response")?;
     if payload.request_status.status_code != 1 {
         log_warn!(
             "reportSessionAd: adId={ad_id} action={action:?} rejected: {} ({})",
@@ -329,6 +329,18 @@ pub struct CreateSessionRequest<'a> {
     pub settings: &'a StreamSettings,
     pub zone_base_url: &'a str,
     pub language_code: &'a str,
+    /// Whether the title being launched is confirmed present in this account's library
+    /// (`GameSummary::account_linked`) - forwarded as `accountLinked` instead of a hardcoded
+    /// `true`. See `build_session_request_body`.
+    pub account_linked: bool,
+    /// Every zone base URL the app already knows about from region discovery/measurement
+    /// (`regions::fetch_regions`), beyond the pinned zone and the global entrypoint. Used only to
+    /// widen the pre-launch zombie-session cleanup sweep - a session this same device left open
+    /// on a zone that isn't the currently pinned one (e.g. it pinned somewhere else on a later
+    /// run) would otherwise never be found, and every subsequent launch would exhaust the retry
+    /// budget and surface as `SESSION_LIMIT_PER_DEVICE_REACHED` ("Device Limit Reached") even
+    /// though the account is not actually out of real slots.
+    pub known_zone_urls: &'a [String],
 }
 
 /// CloudMatch session poll request.
@@ -353,7 +365,9 @@ pub async fn create_session(
     let provider_url = super::auth::load_tokens()
         .and_then(|t| t.provider)
         .map(|p| p.normalized_streaming_url());
-    let default_url = provider_url.as_deref().unwrap_or(DEFAULT_CLOUDMATCH_BASE_URL);
+    let default_url = provider_url
+        .as_deref()
+        .unwrap_or(DEFAULT_CLOUDMATCH_BASE_URL);
     let global_base_url = default_url.trim_end_matches('/');
     let base_url = match normalize_zone_base_url(request.zone_base_url) {
         Some(zone) => {
@@ -363,11 +377,7 @@ pub async fn create_session(
         None => global_base_url.to_owned(),
     };
     let base_url = base_url.as_str();
-    let cleanup_bases: Vec<&str> = if base_url == global_base_url {
-        vec![global_base_url]
-    } else {
-        vec![base_url, global_base_url]
-    };
+    let cleanup_bases = build_cleanup_bases(base_url, global_base_url, request.known_zone_urls);
     let (width, height) = request.settings.dimensions();
 
     let body = build_session_request_body(
@@ -377,6 +387,7 @@ pub async fn create_session(
         height,
         request.settings.fps,
         request.settings.cloudmatch_bit_depth(),
+        request.account_linked,
     );
     let language_code = match request.language_code.trim() {
         "" => DEFAULT_LOCALE,
@@ -435,13 +446,15 @@ pub async fn create_session(
                         {
                             return Ok((payload, true));
                         }
-                        return Err(payload.request_status.to_error(format!(
-                            "CloudMatch create session error {} ({}): {body_text}",
-                            payload.request_status.status_code,
-                            payload.request_status.describe()
-                        ))
-                        .with_http_status(status.as_u16())
-                        .into());
+                        return Err(payload
+                            .request_status
+                            .to_error(format!(
+                                "CloudMatch create session error {} ({}): {body_text}",
+                                payload.request_status.status_code,
+                                payload.request_status.describe()
+                            ))
+                            .with_http_status(status.as_u16())
+                            .into());
                     }
 
                     if status == reqwest::StatusCode::FORBIDDEN
@@ -464,13 +477,15 @@ pub async fn create_session(
                             return Ok((limit_payload, true));
                         }
                         if let Some(limit_payload) = limit_payload {
-                            return Err(limit_payload.request_status.to_error(format!(
-                                "CloudMatch create session error {} ({}): {body_text}",
-                                limit_payload.request_status.status_code,
-                                limit_payload.request_status.describe()
-                            ))
-                            .with_http_status(status.as_u16())
-                            .into());
+                            return Err(limit_payload
+                                .request_status
+                                .to_error(format!(
+                                    "CloudMatch create session error {} ({}): {body_text}",
+                                    limit_payload.request_status.status_code,
+                                    limit_payload.request_status.describe()
+                                ))
+                                .with_http_status(status.as_u16())
+                                .into());
                         }
                     }
 
@@ -502,8 +517,9 @@ pub async fn create_session(
         // Reached only by exhausting the retries: either transport errors (`last_err`) or a
         // sustained 429/5xx, which leaves `last_err` empty.
         match last_err {
-            Some(err) => Err(anyhow::Error::new(err)
-                .context("CloudMatch create session request failed")),
+            Some(err) => {
+                Err(anyhow::Error::new(err).context("CloudMatch create session request failed"))
+            }
             None => bail!(
                 "CloudMatch kept rejecting the launch after {throttled} throttled attempts - \
                  NVIDIA is rate limiting this account, try again in a few minutes"
@@ -653,22 +669,23 @@ pub async fn poll_session(
                 st.app_patching = false;
             }
             if consecutive_server_errors > MAX_CONSECUTIVE_SERVER_ERRORS {
-                return Err(failure.map_or_else(
-                    || {
-                        // no payload, gotta go off the http status alone
-                        GfnError::new(
-                            GfnErrorCode::from_http_status(status.as_u16())
-                                .unwrap_or(GfnErrorCode::SERVER_INTERNAL_ERROR),
-                            format!(
-                                "CloudMatch poll attempt {attempt} rejected: {}: {body_text}",
-                                describe_status(status, &body_text)
-                            ),
-                        )
-                        .with_http_status(status.as_u16())
-                    },
-                    |failure| failure,
-                )
-                .into());
+                return Err(failure
+                    .map_or_else(
+                        || {
+                            // no payload, gotta go off the http status alone
+                            GfnError::new(
+                                GfnErrorCode::from_http_status(status.as_u16())
+                                    .unwrap_or(GfnErrorCode::SERVER_INTERNAL_ERROR),
+                                format!(
+                                    "CloudMatch poll attempt {attempt} rejected: {}: {body_text}",
+                                    describe_status(status, &body_text)
+                                ),
+                            )
+                            .with_http_status(status.as_u16())
+                        },
+                        |failure| failure,
+                    )
+                    .into());
             }
             let backoff = POLL_INTERVAL
                 .saturating_mul(1 << (consecutive_server_errors - 1).min(3) as u32)
@@ -690,12 +707,14 @@ pub async fn poll_session(
             .context("failed to decode CloudMatch poll response")?;
 
         if payload.request_status.status_code != 1 {
-            return Err(payload.request_status.to_error(format!(
-                "CloudMatch poll error: {} ({}): {body_text}",
-                payload.request_status.status_code,
-                payload.request_status.describe()
-            ))
-            .into());
+            return Err(payload
+                .request_status
+                .to_error(format!(
+                    "CloudMatch poll error: {} ({}): {body_text}",
+                    payload.request_status.status_code,
+                    payload.request_status.describe()
+                ))
+                .into());
         }
 
         let session = payload
@@ -709,8 +728,7 @@ pub async fn poll_session(
                 .map(|v| {
                     format!(
                         "sessionAdsRequired={} sessionAds={}",
-                        v["session"]["sessionAdsRequired"],
-                        v["session"]["sessionAds"]
+                        v["session"]["sessionAdsRequired"], v["session"]["sessionAds"]
                     )
                 })
                 .unwrap_or_default();
@@ -984,7 +1002,9 @@ pub async fn get_active_sessions(
         let payload: GetSessionsResponse = match serde_json::from_str(&body_text) {
             Ok(payload) => payload,
             Err(error) => {
-                log_warn!("Could not read CloudMatch active sessions from {base_url}: {error}: {body_text}");
+                log_warn!(
+                    "Could not read CloudMatch active sessions from {base_url}: {error}: {body_text}"
+                );
                 continue;
             }
         };
@@ -1187,6 +1207,29 @@ fn normalize_zone_base_url(zone_base_url: &str) -> Option<String> {
     Some(normalized.trim_end_matches('/').to_owned())
 }
 
+/// Every zone base URL a pre-launch zombie-session sweep should check: the zone this session is
+/// about to be created on, the global entrypoint, and every other zone the app has already
+/// discovered (deduplicated, order-preserving). See `CreateSessionRequest::known_zone_urls` for
+/// why the last part exists.
+fn build_cleanup_bases<'a>(
+    base_url: &'a str,
+    global_base_url: &'a str,
+    known_zone_urls: &'a [String],
+) -> Vec<&'a str> {
+    let mut cleanup_bases: Vec<&str> = if base_url == global_base_url {
+        vec![global_base_url]
+    } else {
+        vec![base_url, global_base_url]
+    };
+    for known in known_zone_urls {
+        let trimmed = known.trim_end_matches('/');
+        if !trimmed.is_empty() && !cleanup_bases.contains(&trimmed) {
+            cleanup_bases.push(trimmed);
+        }
+    }
+    cleanup_bases
+}
+
 /// Zone load balancer hostnames (e.g.
 fn is_zone_hostname(host: &str) -> bool {
     host.contains("cloudmatchbeta.nvidiagrid.net") || host.contains("cloudmatch.nvidiagrid.net")
@@ -1264,7 +1307,6 @@ fn build_signaling_url(raw: &str, server_ip: &str) -> (String, Option<String>) {
     (format!("wss://{server_ip}:443/nvst/"), None)
 }
 
-
 fn build_session_request_body(
     app_id: &str,
     device_hash_id: &str,
@@ -1272,6 +1314,7 @@ fn build_session_request_body(
     height: u32,
     fps: u32,
     bit_depth: u32,
+    account_linked: bool,
 ) -> serde_json::Value {
     let sub_session_id = uuid::Uuid::new_v4().to_string();
     let metadata = json!([
@@ -1326,7 +1369,7 @@ fn build_session_request_body(
             "appLaunchMode": 2,
             "secureRTSPSupported": false,
             "partnerCustomData": "",
-            "accountLinked": true,
+            "accountLinked": account_linked,
             "enablePersistingInGameSettings": false,
             "userAge": 26,
             "requestedStreamingFeatures": {
@@ -1377,7 +1420,12 @@ fn parse_session_info(
         .connection_info
         .iter()
         .find(|conn| conn.matches_usage(14) && conn.ip.is_some())
-        .or_else(|| session.connection_info.iter().find(|conn| conn.ip.is_some()));
+        .or_else(|| {
+            session
+                .connection_info
+                .iter()
+                .find(|conn| conn.ip.is_some())
+        });
     let resource_path = signaling_connection
         .and_then(|conn| conn.resource_path.as_deref())
         .unwrap_or("/nvst/");
@@ -1626,9 +1674,10 @@ impl FlexibleString {
         match self {
             FlexibleString::Str(s) => s.clone(),
             FlexibleString::Num(n) => n.to_string(),
-            FlexibleString::List(items) => {
-                items.first().map(|item| item.as_string()).unwrap_or_default()
-            }
+            FlexibleString::List(items) => items
+                .first()
+                .map(|item| item.as_string())
+                .unwrap_or_default(),
         }
     }
 }
@@ -1803,6 +1852,48 @@ struct CloudMatchStreamingFeatures {
 mod tests {
     use super::*;
 
+    #[test]
+    fn cleanup_bases_include_the_pinned_zone_global_entrypoint_and_known_zones_deduplicated() {
+        let known = vec![
+            "https://prod-eu.example.net/".to_owned(),
+            // duplicate of the pinned zone, must not appear twice
+            "https://prod-sa.example.net".to_owned(),
+            "https://prod-global.example.net".to_owned(),
+        ];
+        let bases = build_cleanup_bases(
+            "https://prod-sa.example.net",
+            "https://prod-global.example.net",
+            &known,
+        );
+        assert_eq!(
+            bases,
+            vec![
+                "https://prod-sa.example.net",
+                "https://prod-global.example.net",
+                "https://prod-eu.example.net",
+            ]
+        );
+    }
+
+    #[test]
+    fn cleanup_bases_collapse_to_one_entry_when_pinned_zone_matches_global() {
+        let bases = build_cleanup_bases(
+            "https://prod-global.example.net",
+            "https://prod-global.example.net",
+            &[],
+        );
+        assert_eq!(bases, vec!["https://prod-global.example.net"]);
+    }
+
+    #[test]
+    fn account_linked_flag_is_forwarded_verbatim_into_the_session_body() {
+        let linked = build_session_request_body("42", "device-1", 960, 544, 60, 8, true);
+        assert_eq!(linked["sessionRequestData"]["accountLinked"], true);
+
+        let not_linked = build_session_request_body("42", "device-1", 960, 544, 60, 8, false);
+        assert_eq!(not_linked["sessionRequestData"]["accountLinked"], false);
+    }
+
     fn request_status(body: &str) -> CloudMatchRequestStatus {
         serde_json::from_str::<CloudMatchResponse>(body)
             .expect("body should decode")
@@ -1894,7 +1985,6 @@ mod tests {
         assert_eq!(FlexibleStatus::Num(7).code(), 7);
     }
 
-
     #[test]
     fn parse_resolution_splits() {
         let mut settings = StreamSettings {
@@ -1911,21 +2001,27 @@ mod tests {
 
     #[test]
     fn signaling_ports_are_not_webrtc_ice_hosts() {
-        assert!(!MediaConnectionInfo {
-            ip: "66.22.137.132".into(),
-            port: 322,
-        }
-        .is_webrtc_ice_host_port());
-        assert!(!MediaConnectionInfo {
-            ip: "66.22.137.132".into(),
-            port: 443,
-        }
-        .is_webrtc_ice_host_port());
-        assert!(MediaConnectionInfo {
-            ip: "66.22.137.132".into(),
-            port: 48010,
-        }
-        .is_webrtc_ice_host_port());
+        assert!(
+            !MediaConnectionInfo {
+                ip: "66.22.137.132".into(),
+                port: 322,
+            }
+            .is_webrtc_ice_host_port()
+        );
+        assert!(
+            !MediaConnectionInfo {
+                ip: "66.22.137.132".into(),
+                port: 443,
+            }
+            .is_webrtc_ice_host_port()
+        );
+        assert!(
+            MediaConnectionInfo {
+                ip: "66.22.137.132".into(),
+                port: 48010,
+            }
+            .is_webrtc_ice_host_port()
+        );
     }
 
     #[test]
