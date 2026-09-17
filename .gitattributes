@@ -1,0 +1,10 @@
+# The VitaSDK wrapper scripts are executed by /bin/sh inside the build container. On a Windows
+# checkout with autocrlf on, git rewrites them with CRLF endings, the shebang becomes `/bin/sh\r`,
+# and the kernel reports "No such file or directory" for a file that is plainly there - which is a
+# confusing hour to lose. Pin them to LF regardless of platform.
+tools/vita-ar    text eol=lf
+tools/vita-gcc   text eol=lf
+tools/vita-pkg-config text eol=lf
+tools/vita-tool  text eol=lf
+scripts/*.sh     text eol=lf
+Makefile         text eol=lf

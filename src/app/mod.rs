@@ -447,6 +447,11 @@ pub struct App {
     /// Whether the in-stream controls quick modal (L2/R2 & L3/R3 settings) is showing.
     pub(crate) show_controls_modal: bool,
     pub(crate) keyboard_open: bool,
+    /// Whether the on-screen keyboard is showing its Windows-shortcut page rather than the keys.
+    pub(crate) keyboard_shortcuts: bool,
+    /// Set when the control profile changes, so the renderer can flash the manual once. Cleared
+    /// by the renderer after it acts on it.
+    pub(crate) flash_manual: bool,
     pub(crate) key_shift: bool,
     pub(crate) key_ctrl: bool,
     pub(crate) key_alt: bool,
@@ -598,6 +603,8 @@ impl App {
             toolbar_expanded: false,
             show_controls_modal: false,
             keyboard_open: false,
+            keyboard_shortcuts: false,
+            flash_manual: false,
             key_shift: false,
             key_ctrl: false,
             key_alt: false,
@@ -890,6 +897,44 @@ impl App {
             }
             AppCommand::SetControlProfile(profile) => {
                 crate::gfn::stream_prefs::set_control_profile(profile);
+                self.flash_manual = true;
+                current_state
+            }
+            AppCommand::ToggleControlProfile => {
+                use crate::gfn::stream_prefs::ControlProfile;
+                let next = match crate::gfn::stream_prefs::control_profile() {
+                    ControlProfile::Game => ControlProfile::Desktop,
+                    ControlProfile::Desktop => ControlProfile::Game,
+                };
+                crate::gfn::stream_prefs::set_control_profile(next);
+                // Flash the manual: switching profile is the one moment you might not remember
+                // what just changed under your thumbs.
+                self.flash_manual = true;
+                current_state
+            }
+            AppCommand::ToggleOverlayReveal => {
+                let revealed = crate::gfn::stream_prefs::overlay_revealed();
+                crate::gfn::stream_prefs::set_overlay_revealed(!revealed);
+                current_state
+            }
+            AppCommand::OpenShortcuts => {
+                // A toggle rather than a one-way door: the same control has to get you back to
+                // the keys, or the only way out is closing the panel entirely.
+                if self.keyboard_open {
+                    self.keyboard_shortcuts = !self.keyboard_shortcuts;
+                } else {
+                    self.keyboard_open = true;
+                    self.keyboard_shortcuts = true;
+                }
+                current_state
+            }
+            AppCommand::AdjustSensitivity(points) => {
+                crate::gfn::stream_prefs::adjust_overlay_sensitivity_percent(points);
+                current_state
+            }
+            AppCommand::ToggleOverlayAutofade => {
+                let enabled = crate::gfn::stream_prefs::overlay_autofade();
+                crate::gfn::stream_prefs::set_overlay_autofade(!enabled);
                 current_state
             }
             AppCommand::SetMaxBitrate(kbps) => {
@@ -900,6 +945,9 @@ impl App {
             }
             AppCommand::ToggleKeyboard => {
                 self.keyboard_open = !self.keyboard_open;
+                if !self.keyboard_open {
+                    self.keyboard_shortcuts = false;
+                }
                 if !self.keyboard_open {
                     self.release_keyboard_modifiers(&current_state);
                 }
@@ -913,30 +961,37 @@ impl App {
                 current_state
             }
             AppCommand::SendChord {
+                shift,
                 ctrl,
                 alt,
                 win,
                 key,
             } => {
+                // Every modifier is a real key held around the tap, Shift included. Before this,
+                // `SendChord` carried only Ctrl/Alt/Win and the keyboard's Shift merely picked a
+                // different character - which meant Ctrl+Shift+Esc, and the whole family of
+                // Shift shortcuts with it, could not be sent at all.
+                //
+                // Order matters: Windows treats these as a sequence, not a set, so they go down
+                // outermost-first and come up in reverse, the way a hand does it.
                 if let AppState::Streaming { peer, .. } = &current_state {
-                    if win {
-                        peer.send_key(crate::gfn::input_protocol::KEY_LEFT_WIN, true);
-                    }
-                    if ctrl {
-                        peer.send_key(crate::gfn::input_protocol::KEY_LEFT_CTRL, true);
-                    }
-                    if alt {
-                        peer.send_key(crate::gfn::input_protocol::KEY_LEFT_ALT, true);
+                    use crate::gfn::input_protocol as proto;
+                    let modifiers = [
+                        (win, proto::KEY_LEFT_WIN),
+                        (ctrl, proto::KEY_LEFT_CTRL),
+                        (alt, proto::KEY_LEFT_ALT),
+                        (shift, proto::KEY_LEFT_SHIFT),
+                    ];
+                    for (active, modifier) in modifiers {
+                        if active {
+                            peer.send_key(modifier, true);
+                        }
                     }
                     peer.tap_key(key);
-                    if alt {
-                        peer.send_key(crate::gfn::input_protocol::KEY_LEFT_ALT, false);
-                    }
-                    if ctrl {
-                        peer.send_key(crate::gfn::input_protocol::KEY_LEFT_CTRL, false);
-                    }
-                    if win {
-                        peer.send_key(crate::gfn::input_protocol::KEY_LEFT_WIN, false);
+                    for (active, modifier) in modifiers.iter().rev() {
+                        if *active {
+                            peer.send_key(*modifier, false);
+                        }
                     }
                 }
                 self.key_shift = false;

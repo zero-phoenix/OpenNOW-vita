@@ -55,7 +55,7 @@ impl SettingsTab {
     pub fn row_count(self) -> usize {
         match self {
             Self::Stream => 5,
-            Self::Controls => 9,
+            Self::Controls => 10,
             Self::App => 2,
             Self::Account => 1,
         }
@@ -146,6 +146,11 @@ pub fn row_info(tab: SettingsTab, row: usize) -> Option<RowInfo> {
             label_key: "settings-control-profile-heading",
             desc_key: Some("settings-control-profile-desc"),
             kind: RowKind::Choice,
+        },
+        (SettingsTab::Controls, 9) => RowInfo {
+            label_key: "settings-overlay-autofade-heading",
+            desc_key: Some("settings-overlay-autofade-desc"),
+            kind: RowKind::Toggle(crate::gfn::stream_prefs::overlay_autofade()),
         },
         (SettingsTab::App, 0) => RowInfo {
             label_key: "settings-language-heading",
@@ -387,6 +392,7 @@ pub fn command_for(
             .get(index)
             .copied()
             .map(AppCommand::SetControlProfile),
+        (SettingsTab::Controls, 9) => Some(AppCommand::ToggleOverlayAutofade),
         (SettingsTab::Stream, 0) => {
             if index == 0 {
                 Some(AppCommand::SetRegion(String::new()))

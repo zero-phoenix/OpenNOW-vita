@@ -6,6 +6,7 @@ mod power;
 mod app;
 mod gfn;
 mod input;
+mod input_stream;
 mod jobs;
 mod logger;
 mod safe_memory;

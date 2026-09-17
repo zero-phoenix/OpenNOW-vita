@@ -1,0 +1,21 @@
+# Build image for local Vita builds: the official VitaSDK container plus exactly what
+# .github/workflows/build.yml installs, so a build that passes locally passes in CI.
+#
+#   docker build -t opennow-build - < scripts/Dockerfile.build
+#   docker run --rm -v "$PWD:/work" -w /work opennow-build sh scripts/docker-build.sh vpk
+FROM vitasdk/vitasdk:latest
+
+RUN (apk add --no-cache curl bash make git build-base) || \
+    (apt-get update && apt-get install -y --no-install-recommends curl bash make git ca-certificates build-essential && rm -rf /var/lib/apt/lists/*)
+
+ENV VITASDK=/usr/local/vitasdk
+ENV CARGO_HOME=/root/.cargo
+ENV RUSTUP_HOME=/root/.rustup
+ENV PATH="/usr/local/vitasdk/bin:/root/.cargo/bin:${PATH}"
+# armv7-sony-vita-newlibeabihf is a Tier 3 target with no prebuilt std, so cargo-vita builds it
+# from source with -Z build-std - hence nightly and the rust-src component.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly --profile minimal \
+ && rustup component add rust-src --toolchain nightly \
+ && cargo +nightly install cargo-vita
+
+WORKDIR /work

@@ -65,6 +65,13 @@ pub struct AppSettings {
     /// user with a US-registered Ultimate + persistent-storage account wants.
     #[serde(default = "default_true")]
     pub force_direct_nvidia_login: bool,
+    /// Whether the game profile's key strip dims itself after a few idle seconds.
+    ///
+    /// "Always visible" and "not competing with the picture" are both real wants, and a strip that
+    /// drops to 35 % when untouched and snaps back on contact satisfies both. Off in the desktop
+    /// profile, where the overlay *is* the interface.
+    #[serde(default = "default_true")]
+    pub overlay_autofade: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -186,12 +193,23 @@ impl Default for AppSettings {
             pc_overlay_alpha: default_overlay_alpha(),
             overlay_sensitivity_percent: default_overlay_sensitivity_percent(),
             force_direct_nvidia_login: default_true(),
+            overlay_autofade: default_true(),
         }
     }
 }
 
 static CACHED_SETTINGS: Mutex<Option<AppSettings>> = Mutex::new(None);
 
+/// Reads one field out of the cached settings **without cloning the struct**.
+///
+/// This is the only way a preference should be read on a hot path. The alternative,
+/// `load_or_init_settings()`, hands back a `clone()` of the whole `AppSettings` - a `BTreeMap` of
+/// per-game profiles plus eight `String`s, so roughly ten heap allocations - and the overlay's
+/// accessors were being called once per SDL event inside the 60 Hz event loop. With a thumb
+/// dragging across the panel that is dozens of clones and hundreds of allocations every frame.
+/// The cost is not really the CPU time: it is that a steady stream of short-lived allocations
+/// fragments newlib's heap, and the allocation that eventually has to consolidate blocks is the
+/// 30 ms stall that shows up as a stutter with no obvious cause.
 fn with_cached_settings<R>(f: impl FnOnce(&AppSettings) -> R) -> R {
     {
         let guard = CACHED_SETTINGS.lock().unwrap();
@@ -476,8 +494,7 @@ impl AudioBoost {
 }
 
 pub fn audio_boost() -> AudioBoost {
-    let s = load_or_init_settings();
-    AudioBoost::from_percent(s.audio_boost_percent)
+    with_cached_settings(|s| AudioBoost::from_percent(s.audio_boost_percent))
 }
 
 pub fn set_audio_boost(boost: AudioBoost) {
@@ -485,8 +502,7 @@ pub fn set_audio_boost(boost: AudioBoost) {
 }
 
 pub fn controls_hint_seen() -> bool {
-    let s = load_or_init_settings();
-    s.controls_hint_seen
+    with_cached_settings(|s| s.controls_hint_seen)
 }
 
 pub fn mark_controls_hint_seen() {
@@ -543,8 +559,7 @@ impl StickZones {
 }
 
 pub fn saved_catalog_sort() -> String {
-    let s = load_or_init_settings();
-    s.catalog_sort
+    with_cached_settings(|s| s.catalog_sort.clone())
 }
 
 pub fn set_saved_catalog_sort(sort_text: &str) {
@@ -552,8 +567,7 @@ pub fn set_saved_catalog_sort(sort_text: &str) {
 }
 
 pub fn saved_catalog_filter() -> String {
-    let s = load_or_init_settings();
-    s.catalog_filter
+    with_cached_settings(|s| s.catalog_filter.clone())
 }
 
 pub fn set_saved_catalog_filter(filter_text: &str) {
@@ -599,8 +613,7 @@ pub fn rear_touch_mode() -> RearTouchMode {
     if let Some(text) = active_profile().and_then(|profile| profile.rear_touch_mode) {
         return RearTouchMode::from_text(&text);
     }
-    let s = load_or_init_settings();
-    RearTouchMode::from_text(&s.rear_touch_mode)
+    with_cached_settings(|s| RearTouchMode::from_text(&s.rear_touch_mode))
 }
 
 pub fn set_rear_touch_mode(mode: RearTouchMode) {
@@ -613,8 +626,8 @@ pub fn set_rear_touch_mode(mode: RearTouchMode) {
 }
 
 pub fn region() -> String {
-    let s = load_or_init_settings();
-    crate::gfn::regions::normalize_base_url(&s.region).unwrap_or_default()
+    with_cached_settings(|s| crate::gfn::regions::normalize_base_url(&s.region))
+        .unwrap_or_default()
 }
 
 pub fn set_region(base_url: &str) {
@@ -726,8 +739,7 @@ impl GameLanguage {
 }
 
 pub fn game_language() -> GameLanguage {
-    let s = load_or_init_settings();
-    GameLanguage::from_code(&s.game_language)
+    with_cached_settings(|s| GameLanguage::from_code(&s.game_language))
 }
 
 pub fn set_game_language(language: GameLanguage) {
@@ -735,8 +747,7 @@ pub fn set_game_language(language: GameLanguage) {
 }
 
 pub fn session_timer_enabled() -> bool {
-    let s = load_or_init_settings();
-    s.session_timer_enabled
+    with_cached_settings(|s| s.session_timer_enabled)
 }
 
 pub fn set_session_timer_enabled(enabled: bool) {
@@ -744,13 +755,19 @@ pub fn set_session_timer_enabled(enabled: bool) {
 }
 
 pub fn trigger_swap_enabled() -> bool {
-    let s = load_or_init_settings();
-    s.trigger_swap_enabled
+    with_cached_settings(|s| s.trigger_swap_enabled)
 }
 
 pub fn force_direct_nvidia_login() -> bool {
-    let s = load_or_init_settings();
-    s.force_direct_nvidia_login
+    with_cached_settings(|s| s.force_direct_nvidia_login)
+}
+
+pub fn overlay_autofade() -> bool {
+    with_cached_settings(|s| s.overlay_autofade)
+}
+
+pub fn set_overlay_autofade(enabled: bool) {
+    update_settings(|s| s.overlay_autofade = enabled);
 }
 
 pub fn set_force_direct_nvidia_login(enabled: bool) {
@@ -762,7 +779,7 @@ pub fn set_trigger_swap_enabled(enabled: bool) {
 }
 
 pub fn ui_locale() -> crate::locale::Locale {
-    crate::locale::Locale::from_str(&load_or_init_settings().ui_locale)
+    with_cached_settings(|s| crate::locale::Locale::from_str(&s.ui_locale))
 }
 
 pub fn set_ui_locale(locale: crate::locale::Locale) {
@@ -772,7 +789,7 @@ pub fn set_ui_locale(locale: crate::locale::Locale) {
 /// Master switch for the PC-touch overlay mod (rear-panel mouse + front-panel key strips).
 /// See `src/input.rs`.
 pub fn pc_overlay_enabled() -> bool {
-    load_or_init_settings().pc_overlay_enabled
+    with_cached_settings(|s| s.pc_overlay_enabled)
 }
 
 pub fn set_pc_overlay_enabled(enabled: bool) {
@@ -820,7 +837,7 @@ impl ControlProfile {
 }
 
 pub fn control_profile() -> ControlProfile {
-    ControlProfile::from_key(&load_or_init_settings().control_profile)
+    with_cached_settings(|s| ControlProfile::from_key(&s.control_profile))
 }
 
 pub fn set_control_profile(profile: ControlProfile) {
@@ -830,7 +847,7 @@ pub fn set_control_profile(profile: ControlProfile) {
 /// True when the overlay's zones and control panel are expanded. The eye toggle itself stays
 /// drawn either way so the player can always get back.
 pub fn overlay_revealed() -> bool {
-    load_or_init_settings().overlay_revealed
+    with_cached_settings(|s| s.overlay_revealed)
 }
 
 pub fn set_overlay_revealed(revealed: bool) {
@@ -897,7 +914,7 @@ impl OverlayOpacity {
 }
 
 pub fn overlay_opacity() -> OverlayOpacity {
-    OverlayOpacity::from_value(load_or_init_settings().pc_overlay_alpha)
+    with_cached_settings(|s| OverlayOpacity::from_value(s.pc_overlay_alpha))
 }
 
 pub fn set_overlay_opacity(opacity: OverlayOpacity) {
@@ -949,7 +966,7 @@ impl OverlaySensitivity {
 }
 
 pub fn overlay_sensitivity() -> OverlaySensitivity {
-    OverlaySensitivity::from_percent(load_or_init_settings().overlay_sensitivity_percent)
+    with_cached_settings(|s| OverlaySensitivity::from_percent(s.overlay_sensitivity_percent))
 }
 
 pub fn set_overlay_sensitivity(sensitivity: OverlaySensitivity) {
@@ -957,10 +974,10 @@ pub fn set_overlay_sensitivity(sensitivity: OverlaySensitivity) {
 }
 
 /// Raw sensitivity percent (100 = 1x), for the rear-panel trackpad's per-motion-event scaling -
-/// see `scale_rear_delta` in `crate::input`. Distinct from `overlay_sensitivity()`'s coarse
+/// see `scale_pointer_delta` in `opennow_core`. Distinct from `overlay_sensitivity()`'s coarse
 /// enum, which only exists to give the settings menu's chip picker four presets to choose from.
 pub fn overlay_sensitivity_percent() -> u16 {
-    load_or_init_settings().overlay_sensitivity_percent
+    with_cached_settings(|s| s.overlay_sensitivity_percent)
 }
 
 /// Nudges the raw sensitivity percent by `delta_percent`, clamped to a sane range. Used by the
@@ -969,7 +986,7 @@ pub fn overlay_sensitivity_percent() -> u16 {
 pub fn adjust_overlay_sensitivity_percent(delta_percent: i32) -> u16 {
     const MIN_PERCENT: i32 = 10;
     const MAX_PERCENT: i32 = 400;
-    let current = i32::from(load_or_init_settings().overlay_sensitivity_percent);
+    let current = i32::from(with_cached_settings(|s| s.overlay_sensitivity_percent));
     let next = (current + delta_percent).clamp(MIN_PERCENT, MAX_PERCENT) as u16;
     update_settings(|s| s.overlay_sensitivity_percent = next);
     next
@@ -1092,5 +1109,34 @@ mod tests {
         let settings: AppSettings =
             serde_json::from_str(json).expect("pre-login-provider settings should load");
         assert!(settings.force_direct_nvidia_login);
+    }
+}
+
+/// The settings the input mapping depends on, as one `Copy` snapshot for `opennow_core`.
+///
+/// Built **once per frame** by the shell rather than once per SDL event. Each accessor below is
+/// now a cache read rather than a whole-struct clone (see `with_cached_settings`), but the deeper
+/// point is that the mapping should not be reaching into global state at all: handing it a value
+/// is what lets it be a pure function with tests that run on a PC.
+///
+/// `front_trackpad` is live app state rather than a stored preference, so the caller passes it in.
+pub fn input_config(front_trackpad: bool) -> opennow_core::config::InputConfig {
+    use opennow_core::config as core;
+    opennow_core::config::InputConfig {
+        profile: match control_profile() {
+            ControlProfile::Game => core::ControlProfile::Game,
+            ControlProfile::Desktop => core::ControlProfile::Desktop,
+        },
+        overlay_enabled: pc_overlay_enabled(),
+        overlay_revealed: overlay_revealed(),
+        sensitivity_percent: overlay_sensitivity_percent(),
+        stick_zones_active: stick_zones().is_active(),
+        trigger_pressure: trigger_intensity().value(),
+        rear_touch_mode: match rear_touch_mode() {
+            RearTouchMode::Halves => core::RearTouchMode::Halves,
+            RearTouchMode::Quadrant => core::RearTouchMode::Quadrant,
+        },
+        trigger_swap: trigger_swap_enabled(),
+        front_trackpad,
     }
 }

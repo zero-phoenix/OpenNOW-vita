@@ -1,0 +1,11 @@
+[package]
+name = "opennow-core"
+version = "0.6.0"
+edition = "2024"
+license = "MPL-2.0"
+description = "Pure input-mapping and wire-protocol logic for OpenNOW Vita, testable on any host"
+
+# Deliberately dependency-free. The whole point of this crate is that it builds and tests without
+# SDL2, libopus or the VitaSDK stubs, so `cargo test -p opennow-core` runs on a normal PC in
+# seconds instead of needing a cross-compiler and a console.
+[dependencies]

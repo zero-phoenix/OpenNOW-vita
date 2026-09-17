@@ -363,5 +363,7 @@ settings-overlay-opacity-ghost = Ghost
 settings-overlay-opacity-strong = Strong
 settings-control-profile-heading = Control profile
 settings-control-profile-desc = Game sends every button to the title. Desktop turns the Vita into a mouse and keyboard.
+settings-overlay-autofade-heading = Dim the strip when idle
+settings-overlay-autofade-desc = In the game profile, the key strip fades to 35 % after six seconds without a touch and comes straight back when you touch the screen. Always visible, but not competing with the picture.
 settings-control-profile-game = Game
 settings-control-profile-desktop = Desktop

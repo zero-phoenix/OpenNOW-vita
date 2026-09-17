@@ -363,5 +363,7 @@ settings-overlay-opacity-ghost = Fantome
 settings-overlay-opacity-strong = Forte
 settings-control-profile-heading = Profil de commandes
 settings-control-profile-desc = Jeu envoie tous les boutons au titre. Bureau transforme la Vita en souris et clavier.
+settings-overlay-autofade-heading = Attenuer la bande inactive
+settings-overlay-autofade-desc = En profil Jeu, la bande de touches descend a 35 % apres six secondes sans contact et revient des que vous touchez l'ecran. Toujours visible, sans gener l'image.
 settings-control-profile-game = Jeu
 settings-control-profile-desktop = Bureau

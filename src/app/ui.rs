@@ -565,8 +565,11 @@ fn stream_stats_panel(
         ui.fonts(|f| f.layout_no_wrap(fps_text, value_font.clone(), fps_color(current_fps)));
     let fps_label_galley =
         ui.fonts(|f| f.layout_no_wrap("FPS".to_owned(), label_font.clone(), TEXT_DIM));
+    // The input line is here on purpose: a "the controls don't work" report can now be checked
+    // against what the router actually decided, instead of guessed at from the source.
+    let input_line = crate::input::stats::line();
     let extra_text = format!(
-        "{kbps} kbps  |  {rtt} ms ping  |  {jit} ms jitter  |  {dec} ms decode  |  {loss}% perdida  |  {drop}/s drop"
+        "{kbps} kbps  |  {rtt} ms ping  |  {jit} ms jitter  |  {dec} ms decode  |  {loss}% perdida  |  {drop}/s drop  |  {input_line}"
     );
     let extra_color = if loss_val >= 2.0 || drop_val >= 1.0 {
         DANGER
@@ -676,7 +679,7 @@ fn clear_stream_touch_reservations(ctx: &egui::Context) {
 const KEYBOARD_CAP_SIZE: egui::Vec2 = egui::vec2(38.0, 26.0);
 const KEYBOARD_CAP_SPACING: f32 = 2.0;
 const KEYBOARD_COLUMNS: f32 = 15.0;
-const KEYBOARD_ROWS: f32 = 6.0;
+const KEYBOARD_ROWS: f32 = 7.0;
 const KEYBOARD_PADDING: f32 = 8.0;
 
 pub(crate) fn keyboard_panel_rect(screen: egui::Rect) -> egui::Rect {
@@ -1029,12 +1032,11 @@ pub fn build_ui(ctx: &egui::Context, app: &App) -> Vec<AppCommand> {
     }
 
     if app.keyboard_open && matches!(app.state, AppState::Streaming { .. }) {
-        commands.extend(on_screen_keyboard(
-            ctx,
-            app.key_shift,
-            app.key_ctrl,
-            app.key_alt,
-        ));
+        commands.extend(if app.keyboard_shortcuts {
+            windows_shortcuts_page(ctx)
+        } else {
+            on_screen_keyboard(ctx, app.key_shift, app.key_ctrl, app.key_alt)
+        });
     }
 
     if app.show_controls_hint
@@ -1824,153 +1826,189 @@ fn pc_overlay_desktop_zones_visible() -> bool {
         && prefs::overlay_revealed()
 }
 
-/// Converts a normalized `(x0, y0, x1, y1)` overlay box into screen coordinates.
-fn overlay_rect(screen: egui::Rect, bounds: (f32, f32, f32, f32)) -> egui::Rect {
-    let (x0, y0, x1, y1) = bounds;
+/// Converts a normalized overlay rectangle into screen coordinates.
+fn overlay_rect(screen: egui::Rect, bounds: opennow_core::input::layout::Rect) -> egui::Rect {
     egui::Rect::from_min_max(
         egui::pos2(
-            screen.min.x + screen.width() * x0,
-            screen.min.y + screen.height() * y0,
+            screen.min.x + screen.width() * bounds.x0,
+            screen.min.y + screen.height() * bounds.y0,
         ),
         egui::pos2(
-            screen.min.x + screen.width() * x1,
-            screen.min.y + screen.height() * y1,
+            screen.min.x + screen.width() * bounds.x1,
+            screen.min.y + screen.height() * bounds.y1,
         ),
     )
 }
 
-/// Paints the PC-touch overlay: the always-visible eye toggle, and - when the desktop profile is
-/// revealed - the two key strips, the slider rails and the control manual.
+/// When the control manual should stop being drawn, on egui's clock.
 ///
-/// Nothing here is an egui widget. The whole overlay is driven by the stream touch router in
-/// `shell::run` against the same normalized geometry `crate::input` hit-tests, so the drawing and
-/// the hit-testing cannot drift; registering these as egui widgets would hand the touches back to
-/// egui and break that.
-fn paint_pc_overlay(ui: &mut egui::Ui) {
+/// The manual used to be permanently painted across the middle of the screen in *both* profiles,
+/// which meant a text card sat over Death Stranding for the whole session. It is a reference, so
+/// it now lives in Settings, and this only flashes it briefly at the one moment it is actually
+/// wanted: right after you switch profiles, when you might not remember what changed.
+static MANUAL_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+const MANUAL_FLASH_SECS: f64 = 4.0;
+
+/// Called when the profile changes, to flash the manual.
+pub(crate) fn flash_control_manual(now: f64) {
+    MANUAL_UNTIL.store(
+        (now + MANUAL_FLASH_SECS).to_bits(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+fn manual_is_flashing(now: f64) -> bool {
+    now < f64::from_bits(MANUAL_UNTIL.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Paints the overlay from `opennow_core::input::layout::ZONES` - the same table the hit-test
+/// reads, so a button cannot be drawn somewhere it does not respond.
+///
+/// Nothing here is an egui widget: registering these would hand the touches back to egui and break
+/// the stream router.
+fn paint_pc_overlay(ui: &mut egui::Ui, config: opennow_core::config::InputConfig) {
     use crate::gfn::stream_prefs as prefs;
+    use opennow_core::input::layout::{ZoneId, live_zones};
 
     let screen = ui.ctx().screen_rect();
-    let alpha = prefs::overlay_opacity().alpha();
-    let revealed = prefs::overlay_revealed();
-    let desktop = prefs::control_profile() == prefs::ControlProfile::Desktop;
-    let painter = ui.painter();
+    let now = ui.ctx().input(|input| input.time);
+    let base_alpha = prefs::overlay_opacity().alpha();
+    let desktop = config.profile == opennow_core::config::ControlProfile::Desktop;
 
-    if revealed && desktop {
-        for (_zone, label, bounds) in crate::input::overlay_zone_rects() {
-            let rect = overlay_rect(screen, bounds).shrink(1.5);
-            painter.rect_filled(
-                rect,
-                5.0_f32,
+    // Auto-fade: after a few seconds without a touch the strip drops to a fraction of its
+    // opacity, so "always visible" does not mean "always competing with the picture". Any touch
+    // brings it straight back - `note_overlay_touch` is called from the shell's router.
+    let faded = prefs::overlay_autofade() && !desktop && idle_seconds(now) > OVERLAY_FADE_AFTER;
+    let alpha = if faded {
+        (f32::from(base_alpha) * 0.35) as u8
+    } else {
+        base_alpha
+    };
+
+    let painter = ui.painter();
+    for zone in live_zones(config) {
+        if zone.id == ZoneId::Eye {
+            continue; // drawn last, so nothing can ever paint over the way back
+        }
+        let rect = overlay_rect(screen, zone.rect).shrink(1.5);
+        let (fill, border) = match zone.id {
+            ZoneId::StickLeft | ZoneId::StickRight => (
+                egui::Color32::from_rgba_unmultiplied(60, 110, 190, alpha),
+                egui::Color32::from_rgba_unmultiplied(120, 170, 235, alpha),
+            ),
+            ZoneId::ModeToggle => (
+                egui::Color32::from_rgba_unmultiplied(20, 24, 32, alpha.max(70)),
+                egui::Color32::from_rgba_unmultiplied(200, 140, 40, alpha.max(70)),
+            ),
+            _ => (
                 egui::Color32::from_rgba_unmultiplied(30, 34, 44, alpha),
-            );
-            painter.rect_stroke(
-                rect,
-                5u8,
-                egui::Stroke::new(
-                    1.0_f32,
-                    egui::Color32::from_rgba_unmultiplied(200, 140, 40, alpha),
-                ),
-                egui::StrokeKind::Inside,
-            );
+                egui::Color32::from_rgba_unmultiplied(200, 140, 40, alpha),
+            ),
+        };
+        if zone.id == ZoneId::StickLeft || zone.id == ZoneId::StickRight {
+            // The stick corners are hidden, not absent, when the player asks for that: they still
+            // work, they just stop drawing.
+            if !prefs::stick_zones().is_visible() {
+                continue;
+            }
+        }
+        painter.rect_filled(rect, 5.0_f32, fill);
+        painter.rect_stroke(
+            rect,
+            5u8,
+            egui::Stroke::new(1.0_f32, border),
+            egui::StrokeKind::Inside,
+        );
+        let label = if zone.id == ZoneId::ModeToggle {
+            if desktop { "\u{1f5b1}" } else { "\u{1f3ae}" }
+        } else {
+            zone.label
+        };
+        if !label.is_empty() {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 label,
-                egui::FontId::proportional(13.0),
+                egui::FontId::proportional(if zone.id == ZoneId::ModeToggle { 16.0 } else { 13.0 }),
                 egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha.saturating_add(70)),
             );
         }
     }
 
-    if revealed {
-        paint_control_manual(painter, screen, alpha, desktop);
-
-        // Profile switch, directly under the eye.
-        let mode = overlay_rect(screen, crate::input::OVERLAY_MODE_RECT).shrink(3.0);
-        let mode_alpha = alpha.max(70);
-        painter.rect_filled(
-            mode,
-            6.0_f32,
-            egui::Color32::from_rgba_unmultiplied(20, 24, 32, mode_alpha),
-        );
-        painter.text(
-            mode.center(),
-            egui::Align2::CENTER_CENTER,
-            if desktop { "\u{1f5b1}" } else { "\u{1f3ae}" },
-            egui::FontId::proportional(16.0),
-            egui::Color32::from_rgba_unmultiplied(255, 255, 255, mode_alpha.saturating_add(60)),
-        );
+    if manual_is_flashing(now) {
+        ui.ctx().request_repaint();
+        paint_control_manual(painter, screen, base_alpha, config.profile);
     }
 
-    // The eye last, so it is never painted over: it is the only way back once collapsed.
-    let eye = overlay_rect(screen, crate::input::OVERLAY_EYE_RECT).shrink(3.0);
-    let eye_alpha = alpha.max(70);
+    // The eye last, at a guaranteed alpha floor: it is the only way back once collapsed, so it can
+    // never fade out of sight, not even under the auto-fade above.
+    let eye_bounds = opennow_core::input::layout::ZONES
+        .iter()
+        .find(|zone| zone.id == ZoneId::Eye)
+        .map(|zone| zone.rect)
+        .expect("the eye is in the layout table");
+    let eye = overlay_rect(screen, eye_bounds).shrink(3.0);
+    let eye_alpha = base_alpha.max(70);
     painter.rect_filled(
         eye,
         6.0_f32,
         egui::Color32::from_rgba_unmultiplied(20, 24, 32, eye_alpha),
     );
-    let glyph = if revealed { "\u{1f441}" } else { "\u{25cb}" };
     painter.text(
         eye.center(),
         egui::Align2::CENTER_CENTER,
-        glyph,
+        if prefs::overlay_revealed() {
+            "\u{1f441}"
+        } else {
+            "\u{25cb}"
+        },
         egui::FontId::proportional(18.0),
         egui::Color32::from_rgba_unmultiplied(255, 255, 255, eye_alpha.saturating_add(60)),
     );
-    let profile_tag = if desktop { "PC" } else { "GAME" };
     painter.text(
         egui::pos2(eye.center().x, eye.max.y - 5.0),
         egui::Align2::CENTER_BOTTOM,
-        profile_tag,
+        if desktop { "PC" } else { "GAME" },
         egui::FontId::proportional(9.0),
         egui::Color32::from_rgba_unmultiplied(200, 140, 40, eye_alpha.saturating_add(60)),
     );
 }
 
-/// Minimalist graphical control manual, drawn in the clear middle of the screen while the
-/// overlay is revealed. Shows what every stick and button does in the active profile, so the
-/// player never has to guess or leave the stream to check.
-fn paint_control_manual(painter: &egui::Painter, screen: egui::Rect, alpha: u8, desktop: bool) {
-    // Left column = left-hand controls, right column = right-hand controls, mirroring the Vita.
-    let rows: [(&str, &str); 8] = if desktop {
-        [
-            ("\u{25cf} Stick L", "Cursor fino"),
-            ("\u{25cf} Stick R", "Scroll"),
-            ("\u{271a} D-Pad", "Flechas"),
-            ("\u{2715} / \u{25cb}", "Clic izq. / der."),
-            ("\u{25b3} / \u{25a1}", "Enter / Borrar"),
-            ("L / R", "Precision / Doble clic"),
-            ("SELECT / START", "Teclado / Win"),
-            ("Panel trasero", "Raton + clic por mitades"),
-        ]
-    } else {
-        [
-            ("\u{25cf} Sticks", "Al juego"),
-            ("\u{271a} D-Pad", "Al juego"),
-            ("\u{2715} \u{25cb} \u{25b3} \u{25a1}", "Al juego"),
-            ("L / R", "L1 / R1"),
-            ("Panel trasero", "L2 / R2 analogicos"),
-            ("Esquinas inf.", "L3 / R3"),
-            ("SELECT / START", "Al juego"),
-            ("\u{1f441} Ojo", "Cambia a modo PC"),
-        ]
+/// Seconds since the last front-panel touch, on egui's clock.
+static LAST_TOUCH_AT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+const OVERLAY_FADE_AFTER: f64 = 6.0;
+
+pub(crate) fn note_overlay_touch(now: f64) {
+    LAST_TOUCH_AT.store(now.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+fn idle_seconds(now: f64) -> f64 {
+    now - f64::from_bits(LAST_TOUCH_AT.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The control manual, generated from `opennow_core::input::bindings` rather than written out by
+/// hand - a hand-written manual drifts from the code the first time a binding changes, and then
+/// confidently describes a layout the client does not have.
+fn paint_control_manual(
+    painter: &egui::Painter,
+    screen: egui::Rect,
+    alpha: u8,
+    profile: opennow_core::config::ControlProfile,
+) {
+    use opennow_core::config::ControlProfile;
+    use opennow_core::input::bindings::manual;
+
+    let rows: Vec<(&str, &str)> = manual(profile).collect();
+    let title = match profile {
+        ControlProfile::Desktop => "MODO ESCRITORIO",
+        ControlProfile::Game => "MODO JUEGO",
     };
 
-    let title = if desktop {
-        "MODO ESCRITORIO"
-    } else {
-        "MODO JUEGO"
-    };
-
-    let width = screen.width() * 0.46;
     let line_height = 13.0;
-    let height = line_height * (rows.len() as f32 + 1.6);
     let card = egui::Rect::from_center_size(
-        egui::pos2(screen.center().x, screen.center().y),
-        egui::vec2(width, height),
+        screen.center(),
+        egui::vec2(screen.width() * 0.52, line_height * (rows.len() as f32 + 1.8)),
     );
-    // The manual is a reference, not a control, so it sits a notch fainter than the buttons.
     let card_alpha = alpha.saturating_sub(20).max(30);
     painter.rect_filled(
         card,
@@ -1986,7 +2024,6 @@ fn paint_control_manual(painter: &egui::Painter, screen: egui::Rect, alpha: u8, 
         ),
         egui::StrokeKind::Inside,
     );
-
     let text_alpha = card_alpha.saturating_add(90);
     painter.text(
         egui::pos2(card.center().x, card.min.y + 4.0),
@@ -1996,20 +2033,20 @@ fn paint_control_manual(painter: &egui::Painter, screen: egui::Rect, alpha: u8, 
         egui::Color32::from_rgba_unmultiplied(200, 140, 40, text_alpha),
     );
     for (index, (control, effect)) in rows.iter().enumerate() {
-        let y = card.min.y + line_height * (index as f32 + 1.6);
+        let y = card.min.y + line_height * (index as f32 + 1.8);
         painter.text(
             egui::pos2(card.min.x + 8.0, y),
             egui::Align2::LEFT_TOP,
-            control,
+            *control,
             egui::FontId::proportional(10.0),
             egui::Color32::from_rgba_unmultiplied(235, 235, 245, text_alpha),
         );
         painter.text(
             egui::pos2(card.max.x - 8.0, y),
             egui::Align2::RIGHT_TOP,
-            effect,
+            *effect,
             egui::FontId::proportional(10.0),
-            egui::Color32::from_rgba_unmultiplied(170, 178, 195, text_alpha),
+            egui::Color32::from_rgba_unmultiplied(190, 196, 214, text_alpha),
         );
     }
 }
@@ -2161,19 +2198,15 @@ fn front_stick_zones_diagram(ui: &mut egui::Ui, max_height: f32) {
     ui.ctx().request_repaint();
 
     let painter = ui.painter();
-    let top = crate::input::STICK_ZONE_TOP;
-    let width = crate::input::STICK_ZONE_WIDTH;
-    let left = egui::Rect::from_min_max(
-        egui::pos2(screen.min.x, screen.min.y + screen.height() * top),
-        egui::pos2(screen.min.x + screen.width() * width, screen.max.y),
-    );
-    let right = egui::Rect::from_min_max(
-        egui::pos2(
-            screen.max.x - screen.width() * width,
-            screen.min.y + screen.height() * top,
-        ),
-        egui::pos2(screen.max.x, screen.max.y),
-    );
+    // Straight off the layout table, so the explainer can never point at a corner that moved.
+    let config = crate::gfn::stream_prefs::input_config(true);
+    let corner = |id| {
+        opennow_core::input::layout::zone_rect(id, config)
+            .map(|bounds| overlay_rect(screen, bounds))
+            .unwrap_or(screen)
+    };
+    let left = corner(opennow_core::input::layout::ZoneId::StickLeft);
+    let right = corner(opennow_core::input::layout::ZoneId::StickRight);
     paint_pulsing_zone(painter, left, "L3", time, 0.0, 10.0);
     paint_pulsing_zone(painter, right, "R3", time, 0.5, 10.0);
 }
@@ -4059,52 +4092,8 @@ fn streaming_screen(
         // Rebuilt every frame: a control that stops being drawn must stop claiming its touches.
         clear_stream_touch_reservations(ui.ctx());
 
-        // Deliberately *not* registered with `reserve_stream_touch`: that would hand them back to
-        // egui, and these are driven by the stream touch router instead.
-        if has_video
-            && crate::gfn::stream_prefs::stick_zones().is_visible()
-            && !pc_overlay_desktop_zones_visible()
-        {
-            let screen = ui.ctx().screen_rect();
-            let painter = ui.painter();
-            let top = screen.min.y + screen.height() * crate::input::STICK_ZONE_TOP;
-            let width = screen.width() * crate::input::STICK_ZONE_WIDTH;
-            for (label, left) in [("L3", true), ("R3", false)] {
-                let rect = egui::Rect::from_min_max(
-                    egui::pos2(
-                        if left {
-                            screen.min.x
-                        } else {
-                            screen.max.x - width
-                        },
-                        top,
-                    ),
-                    egui::pos2(
-                        if left {
-                            screen.min.x + width
-                        } else {
-                            screen.max.x
-                        },
-                        screen.max.y,
-                    ),
-                );
-                painter.rect_filled(
-                    rect,
-                    6.0_f32,
-                    egui::Color32::from_rgba_unmultiplied(60, 110, 190, 70),
-                );
-                painter.text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    label,
-                    egui::FontId::proportional(26.0),
-                    egui::Color32::from_rgba_unmultiplied(255, 255, 255, 130),
-                );
-            }
-        }
-
         if has_video && crate::gfn::stream_prefs::pc_overlay_enabled() {
-            paint_pc_overlay(ui);
+            paint_pc_overlay(ui, crate::gfn::stream_prefs::input_config(true));
         }
 
         if crate::gfn::stream_prefs::session_timer_enabled() {
@@ -4400,6 +4389,8 @@ fn stream_controls_modal(ctx: &egui::Context, i18n: &I18n) -> Option<AppCommand>
 
 enum KeyCap {
     Char(char, char),
+    /// Switches the panel to the Windows-shortcut page.
+    Shortcuts,
     Key(&'static str, crate::gfn::input_protocol::KeyStroke),
     Backspace,
     Enter,
@@ -4409,7 +4400,7 @@ enum KeyCap {
     Alt,
 }
 
-fn keyboard_layout() -> [Vec<(KeyCap, f32)>; 6] {
+fn keyboard_layout() -> [Vec<(KeyCap, f32)>; 7] {
     use crate::gfn::input_protocol::*;
     [
         vec![
@@ -4428,6 +4419,14 @@ fn keyboard_layout() -> [Vec<(KeyCap, f32)>; 6] {
             (KeyCap::Key("F12", KEY_F12), 1.0),
             (KeyCap::Key("Home", KEY_HOME), 1.0),
             (KeyCap::Key("End", KEY_END), 1.0),
+        ],
+        vec![
+            (KeyCap::Key("Ins", KEY_INSERT), 1.0),
+            (KeyCap::Key("Supr", KEY_DELETE), 1.0),
+            (KeyCap::Key("PgUp", KEY_PAGE_UP), 1.0),
+            (KeyCap::Key("PgDn", KEY_PAGE_DOWN), 1.0),
+            (KeyCap::Key("Caps", KEY_CAPS_LOCK), 1.5),
+            (KeyCap::Shortcuts, 2.0),
         ],
         vec![
             (KeyCap::Char('`', '~'), 1.0),
@@ -4506,6 +4505,98 @@ fn keyboard_layout() -> [Vec<(KeyCap, f32)>; 6] {
     ]
 }
 
+/// One row of the Windows-shortcut page: what it is called and what it sends.
+///
+/// These exist because reaching `Win+D` by latching Win and then pressing D is three deliberate
+/// actions on a touchscreen you are holding with both hands. Every one of these is a single tap.
+fn windows_shortcuts() -> Vec<(&'static str, AppCommand)> {
+    use crate::gfn::input_protocol as proto;
+    let chord = |shift, ctrl, alt, win, key| AppCommand::SendChord {
+        shift,
+        ctrl,
+        alt,
+        win,
+        key,
+    };
+    let letter = |ch: char| proto::key_for_char(ch).expect("an ASCII letter always maps");
+    vec![
+        ("Inicio", AppCommand::SendKey(proto::KEY_LEFT_WIN)),
+        ("Escritorio", chord(false, false, false, true, letter('d'))),
+        ("Explorador", chord(false, false, false, true, letter('e'))),
+        ("Vista tareas", chord(false, false, false, true, proto::KEY_TAB)),
+        ("Maximizar", chord(false, false, false, true, proto::KEY_UP)),
+        ("Cambiar ventana", chord(false, false, true, false, proto::KEY_TAB)),
+        ("Cerrar ventana", chord(false, false, true, false, proto::KEY_F4)),
+        // The one that was impossible before: it needs Shift as a real held key.
+        ("Administrador", chord(true, true, false, false, proto::KEY_ESCAPE)),
+        ("Copiar", chord(false, true, false, false, letter('c'))),
+        ("Pegar", chord(false, true, false, false, letter('v'))),
+        ("Deshacer", chord(false, true, false, false, letter('z'))),
+        ("Seleccionar todo", chord(false, true, false, false, letter('a'))),
+        ("Pantalla completa", AppCommand::SendKey(proto::KEY_F11)),
+        ("Bloquear PC", chord(false, false, false, true, letter('l'))),
+        ("Seguridad", chord(false, true, true, false, proto::KEY_DELETE)),
+        ("Buscar", chord(false, false, false, true, letter('s'))),
+    ]
+}
+
+/// The shortcut page, in place of the keys.
+fn windows_shortcuts_page(ctx: &egui::Context) -> Vec<AppCommand> {
+    let mut commands = Vec::new();
+    let panel_rect = keyboard_panel_rect(ctx.screen_rect());
+    reserve_stream_touch(ctx, panel_rect);
+
+    egui::Area::new(egui::Id::new("windows_shortcuts_page"))
+        .fixed_pos(panel_rect.min)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            let translucency = crate::gfn::stream_prefs::overlay_opacity()
+                .multiplier()
+                .clamp(0.35, 0.9);
+            egui::Frame::window(&ui.style())
+                .fill(BG_PANEL.gamma_multiply(translucency))
+                .inner_margin(egui::Margin::same(KEYBOARD_PADDING as i8))
+                .outer_margin(egui::Margin::ZERO)
+                .shadow(egui::Shadow::NONE)
+                .corner_radius(0.0)
+                .show(ui, |ui| {
+                    let inner_width = panel_rect.width() - KEYBOARD_PADDING * 2.0;
+                    ui.set_width(inner_width);
+                    ui.spacing_mut().item_spacing =
+                        egui::vec2(KEYBOARD_CAP_SPACING, KEYBOARD_CAP_SPACING);
+
+                    let shortcuts = windows_shortcuts();
+                    let columns = 4.0_f32;
+                    let width =
+                        (inner_width - (columns - 1.0) * KEYBOARD_CAP_SPACING) / columns;
+                    for row in shortcuts.chunks(4) {
+                        ui.horizontal(|ui| {
+                            for (label, command) in row {
+                                let button =
+                                    egui::Button::new(egui::RichText::new(*label).size(10.0))
+                                        .fill(BG_RAISED.gamma_multiply(translucency));
+                                if ui
+                                    .add_sized([width, KEYBOARD_CAP_SIZE.y], button)
+                                    .clicked()
+                                {
+                                    commands.push(command.clone());
+                                }
+                            }
+                        });
+                    }
+                    ui.horizontal(|ui| {
+                        let back = egui::Button::new(egui::RichText::new("\u{2328} Teclado").size(10.0))
+                            .fill(ACCENT.gamma_multiply(0.35));
+                        if ui.add_sized([width, KEYBOARD_CAP_SIZE.y], back).clicked() {
+                            commands.push(AppCommand::OpenShortcuts);
+                        }
+                    });
+                });
+        });
+
+    commands
+}
+
 fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -> Vec<AppCommand> {
     use crate::gfn::input_protocol::key_for_char;
 
@@ -4551,6 +4642,7 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     KeyCap::Backspace => ("Bksp".to_string(), false),
                                     KeyCap::Enter => ("Enter".to_string(), false),
                                     KeyCap::Space => (String::new(), false),
+                                    KeyCap::Shortcuts => ("Atajos".to_string(), false),
                                     KeyCap::Shift => ("Shift".to_string(), shift),
                                     KeyCap::Ctrl => ("Ctrl".to_string(), ctrl),
                                     KeyCap::Alt => ("Alt".to_string(), alt),
@@ -4571,8 +4663,12 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     KeyCap::Char(lower, upper) => {
                                         let ch = if shift { upper } else { lower };
                                         if let Some(key) = key_for_char(ch) {
+                                            // Shift is deliberately not forwarded here: it already
+                                            // picked the character, and sending it as a key too
+                                            // would make the host see Shift+A rather than `A`.
                                             commands.push(if ctrl || alt {
                                                 AppCommand::SendChord {
+                                                    shift: false,
                                                     ctrl,
                                                     alt,
                                                     win: false,
@@ -4584,8 +4680,9 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                         }
                                     }
                                     KeyCap::Key(_, key) => {
-                                        commands.push(if ctrl || alt {
+                                        commands.push(if ctrl || alt || shift {
                                             AppCommand::SendChord {
+                                                shift,
                                                 ctrl,
                                                 alt,
                                                 win: false,
@@ -4597,8 +4694,9 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     }
                                     KeyCap::Backspace => {
                                         let key = crate::gfn::input_protocol::KEY_BACKSPACE;
-                                        commands.push(if ctrl || alt {
+                                        commands.push(if ctrl || alt || shift {
                                             AppCommand::SendChord {
+                                                shift,
                                                 ctrl,
                                                 alt,
                                                 win: false,
@@ -4610,8 +4708,9 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     }
                                     KeyCap::Enter => {
                                         let key = crate::gfn::input_protocol::KEY_ENTER;
-                                        commands.push(if ctrl || alt {
+                                        commands.push(if ctrl || alt || shift {
                                             AppCommand::SendChord {
+                                                shift,
                                                 ctrl,
                                                 alt,
                                                 win: false,
@@ -4623,8 +4722,9 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                     }
                                     KeyCap::Space => {
                                         let key = crate::gfn::input_protocol::KEY_SPACE;
-                                        commands.push(if ctrl || alt {
+                                        commands.push(if ctrl || alt || shift {
                                             AppCommand::SendChord {
+                                                shift,
                                                 ctrl,
                                                 alt,
                                                 win: false,
@@ -4633,6 +4733,9 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                         } else {
                                             AppCommand::SendKey(key)
                                         });
+                                    }
+                                    KeyCap::Shortcuts => {
+                                        commands.push(AppCommand::OpenShortcuts)
                                     }
                                     KeyCap::Shift => commands.push(AppCommand::ToggleKeyShift),
                                     KeyCap::Ctrl => commands.push(AppCommand::ToggleKeyCtrl),

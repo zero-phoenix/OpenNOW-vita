@@ -363,5 +363,7 @@ settings-overlay-opacity-ghost = Fantasma
 settings-overlay-opacity-strong = Fuerte
 settings-control-profile-heading = Perfil de control
 settings-control-profile-desc = Juego envia todos los botones al titulo. Escritorio convierte la Vita en raton y teclado.
+settings-overlay-autofade-heading = Atenuar la tira al no usarla
+settings-overlay-autofade-desc = En el modo Juego, la tira de teclas baja al 35 % tras seis segundos sin tocarla y vuelve al instante al tocar la pantalla. Siempre visible, pero sin competir con la imagen.
 settings-control-profile-game = Juego
 settings-control-profile-desktop = Escritorio

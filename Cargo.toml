@@ -1,6 +1,13 @@
+[workspace]
+members = ["core"]
+# `cargo vita build vpk` and `cargo build` at the root must keep meaning "the Vita binary", not
+# "every crate in the workspace" - the core crate is a host-side library and has no business being
+# cross-compiled into the VPK.
+default-members = ["."]
+
 [package]
 name = "opennow-vita"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 license = "MPL-2.0"
 description = "Cliente homebrew no oficial de GeForce NOW para PlayStation Vita"
@@ -8,6 +15,7 @@ description = "Cliente homebrew no oficial de GeForce NOW para PlayStation Vita"
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
+opennow-core = { path = "core" }
 bytes = "1"
 crossbeam-channel = "0.5"
 egui = "0.31"

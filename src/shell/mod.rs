@@ -7,11 +7,11 @@ mod surface;
 use crate::app::ui::build_ui;
 use crate::app::{App, AppState};
 use crate::input::{
-    DesktopPad, PcOverlayAction, PcOverlayTouch, RearOverlayMouse, RearTouchTriggers,
-    StreamTouchState, front_touch_position, gamepad_snapshot, held_menu_direction,
+    StreamInput, front_touch_position, gamepad_snapshot, held_menu_direction,
     map_controller_button_event, map_keyboard_event, map_pointer_event, open_first_controller,
-    register_vita_controller_mapping,
+    read_pad, register_vita_controller_mapping,
 };
+use opennow_core::input::OutputEvent;
 use crate::streaming::audio::AudioRenderer;
 use anyhow::{Context, Result};
 use std::time::{Duration, Instant};
@@ -23,6 +23,11 @@ const DIRECTION_REPEAT_INITIAL_DELAY: Duration = Duration::from_millis(200);
 const DIRECTION_REPEAT_INTERVAL: Duration = Duration::from_millis(70);
 
 pub(crate) const TARGET_FRAME_TIME: Duration = Duration::from_millis(16);
+
+/// How often the pad is sampled, independent of the frame rate. 8 ms is 120 Hz: twice the render
+/// rate, so the average wait between pressing a button and the packet leaving drops from ~8 ms to
+/// ~4 ms, and a slow frame no longer drags the controller with it.
+const PAD_POLL_INTERVAL: Duration = Duration::from_millis(8);
 
 const FRAME_STATS_INTERVAL: Duration = Duration::from_secs(2);
 const SLOW_FRAME_THRESHOLD: Duration = Duration::from_millis(20);
@@ -221,16 +226,10 @@ pub async fn run(mut app: App) -> Result<()> {
     let mut last_direction_repeat_at = Instant::now();
     let mut text_input_active = false;
     let mut touch_owned_by_ui = false;
-    let mut touch_owned_by_stick_zone = false;
-    let mut stream_touch = StreamTouchState::default();
-    let mut rear_touch = RearTouchTriggers::default();
-    let mut stick_zones = crate::input::FrontStickZones::default();
-    let mut pc_overlay_touch = PcOverlayTouch::default();
-    let mut rear_overlay_mouse = RearOverlayMouse::default();
-    let mut desktop_pad = DesktopPad::default();
-    let mut desktop_pad_last_tick = Instant::now();
-    let mut touch_owned_by_overlay = false;
+    let mut stream_input = StreamInput::default();
+    let mut last_pad_poll = Instant::now();
     let mut was_streaming = false;
+    let mut was_desktop_profile = false;
     let mut frame_stats = FrameStats::default();
     crate::logger::reset_frame_stats_log();
     crate::logger::write_frame_stats("=== OpenNOW-vita frame stats — new session ===");
@@ -242,10 +241,14 @@ pub async fn run(mut app: App) -> Result<()> {
         let mut egui_events = Vec::new();
         let mut direct_commands = Vec::new();
         let mut stream_mouse_events = Vec::new();
+        let mut stream_key_events = Vec::new();
         let touch_drives_stream =
             matches!(app.state, AppState::Streaming { .. }) && !app.ui_owns_touch();
+        // One snapshot of the settings per frame. Reading them per event used to clone the whole
+        // `AppSettings` struct - see `stream_prefs::with_cached_settings` for why that mattered.
+        let config = crate::gfn::stream_prefs::input_config(app.mouse_trackpad_enabled);
         let screen_points = (WIDTH as f32 / UI_SCALE, HEIGHT as f32 / UI_SCALE);
-        let mut stream_ui_rects: Vec<egui::Rect> = crate::app::ui::stream_ui_rects(&egui_ctx)
+        let mut ui_rects: Vec<egui::Rect> = crate::app::ui::stream_ui_rects(&egui_ctx)
             .into_iter()
             // Fingertips are wider than a button's hit box.
             .map(|rect| rect.expand(8.0))
@@ -255,7 +258,7 @@ pub async fn run(mut app: App) -> Result<()> {
                 egui::Pos2::ZERO,
                 egui::vec2(screen_points.0, screen_points.1),
             );
-            stream_ui_rects.push(crate::app::ui::keyboard_panel_rect(screen));
+            ui_rects.push(crate::app::ui::keyboard_panel_rect(screen));
         }
         // Touch deltas are normalized 0..1, so they scale by the streamed frame's own size to
         // land as host pixels: a drag across the whole panel moves the cursor across the whole
@@ -273,147 +276,51 @@ pub async fn run(mut app: App) -> Result<()> {
             {
                 direct_commands.push(command);
             }
-            rear_touch.handle(&event);
-            stick_zones.handle(&event);
-            let overlay_enabled = crate::gfn::stream_prefs::pc_overlay_enabled();
-            // The desktop profile is the only one that repurposes controls. In the game profile
-            // the overlay draws its eye toggle and nothing else, and every button, stick and the
-            // rear panel reach the title untouched - which is what makes Death Stranding-class
-            // games playable with the overlay still switched on.
-            let desktop_mode = overlay_enabled
-                && crate::gfn::stream_prefs::control_profile()
-                    == crate::gfn::stream_prefs::ControlProfile::Desktop;
-            let revealed = crate::gfn::stream_prefs::overlay_revealed();
-            let zones_live = desktop_mode && revealed;
-            if overlay_enabled && touch_drives_stream {
-                for action in pc_overlay_touch.handle(&event, revealed, zones_live) {
-                    match action {
-                        PcOverlayAction::ToggleReveal => {
-                            crate::gfn::stream_prefs::set_overlay_revealed(!revealed);
+            // One router, one decision. `config` is built once per frame above, not once per
+            // event, and every question of "whose finger is this" is answered by
+            // `opennow_core::input::router`, where the precedence order is a written list covered
+            // by tests rather than a chain of `if`s nobody can hold in their head.
+            if touch_drives_stream {
+                if matches!(event, sdl2::event::Event::FingerDown { .. }) {
+                    crate::app::ui::note_overlay_touch(start_time.elapsed().as_secs_f64());
+                }
+                let claims = |x: f32, y: f32| {
+                    let point = egui::pos2(x * screen_points.0, y * screen_points.1);
+                    ui_rects.iter().any(|rect| rect.contains(point))
+                };
+                for output in stream_input.handle_event(&event, config, stream_size, &claims) {
+                    match output {
+                        OutputEvent::Mouse(mouse) => stream_mouse_events.push(mouse),
+                        OutputEvent::Key { key, pressed } => {
+                            stream_key_events.push((key, pressed))
                         }
-                        PcOverlayAction::ToggleProfile => {
-                            use crate::gfn::stream_prefs::ControlProfile;
-                            let next = match crate::gfn::stream_prefs::control_profile() {
-                                ControlProfile::Game => ControlProfile::Desktop,
-                                ControlProfile::Desktop => ControlProfile::Game,
-                            };
-                            crate::gfn::stream_prefs::set_control_profile(next);
-                        }
-                        PcOverlayAction::Key(key) => {
-                            direct_commands.push(crate::input::AppCommand::SendKey(key));
-                        }
-                        PcOverlayAction::Chord {
-                            ctrl,
-                            alt,
-                            win,
-                            key,
-                        } => {
-                            direct_commands.push(crate::input::AppCommand::SendChord {
-                                ctrl,
-                                alt,
-                                win,
-                                key,
-                            });
-                        }
-                        PcOverlayAction::OpenSettings => {
-                            direct_commands.push(crate::input::AppCommand::OpenSettings);
-                        }
-                        PcOverlayAction::ToggleKeyboard => {
-                            direct_commands.push(crate::input::AppCommand::ToggleKeyboard);
-                        }
-                        PcOverlayAction::ToggleShift => {
-                            direct_commands.push(crate::input::AppCommand::ToggleKeyShift);
-                        }
-                        PcOverlayAction::ToggleCtrl => {
-                            direct_commands.push(crate::input::AppCommand::ToggleKeyCtrl);
-                        }
-                        PcOverlayAction::ToggleAlt => {
-                            direct_commands.push(crate::input::AppCommand::ToggleKeyAlt);
-                        }
-                        PcOverlayAction::DpiDelta(dy) => {
-                            // A full drag down the rail swings roughly -100%..+100% of the
-                            // current sensitivity, so quick nudges (a few percent of the panel
-                            // height) stay fine-grained.
-                            let delta_percent = (dy * 300.0).round() as i32;
-                            crate::gfn::stream_prefs::adjust_overlay_sensitivity_percent(
-                                delta_percent,
-                            );
-                        }
-                        PcOverlayAction::ScrollDelta(dy) => {
-                            use crate::gfn::input_protocol::MouseEvent;
-                            // Finger down = content should follow it, i.e. scroll down, which is
-                            // a *negative* wheel delta in the ±120 WHEEL_DELTA convention.
-                            let delta = (-dy * 900.0).clamp(-1200.0, 1200.0) as i16;
-                            if delta != 0 {
-                                stream_mouse_events.push(MouseEvent::WheelBy { delta });
+                        other => {
+                            if let Some(command) = crate::input_stream::app_command_for(other)
+                                && !direct_commands.contains(&command)
+                            {
+                                direct_commands.push(command);
                             }
                         }
                     }
                 }
             }
             // Ownership of a touch is decided once, on finger-down, and the rest of the gesture
-            // follows it. Deciding per-event would let a drag that starts on the game and ends on
-            // the button swallow the mouse-up, leaving the host holding the button down.
+            // follows it. Deciding per event would let a drag that starts on the game and ends on
+            // a button swallow the mouse-up, leaving the host holding the button down.
             if let Some(pos) = front_touch_position(&event, screen_points)
                 && matches!(event, sdl2::event::Event::FingerDown { .. })
             {
-                touch_owned_by_ui = stream_ui_rects.iter().any(|rect| rect.contains(pos));
+                touch_owned_by_ui = ui_rects.iter().any(|rect| rect.contains(pos));
             }
-            // Decided on finger-down like the rest, and checked *after* the client's own UI. The
-            // eye toggle is always claimable; the rest of the zones only while the desktop
-            // profile has them revealed.
-            if let sdl2::event::Event::FingerDown { touch_id, x, y, .. } = event
-                && touch_id == crate::input::FRONT_TOUCH_DEVICE_ID
-            {
-                touch_owned_by_overlay = touch_drives_stream
-                    && !touch_owned_by_ui
-                    && overlay_enabled
-                    && (crate::input::overlay_eye_at(x, y)
-                        || (revealed && crate::input::overlay_mode_at(x, y))
-                        || (zones_live && crate::input::overlay_zone_at(x, y).is_some()));
-                // The bottom key strip overlaps the L3/R3 corners, so the two are resolved by
-                // precedence rather than by geometry: the overlay only claims a touch when its
-                // zones are live (desktop profile, revealed), and the stick zones take anything
-                // it did not claim. In the game profile that means L3/R3 keep working exactly as
-                // they do with the overlay off.
-                touch_owned_by_stick_zone = touch_drives_stream
-                    && !touch_owned_by_ui
-                    && !touch_owned_by_overlay
-                    && crate::gfn::stream_prefs::stick_zones().is_active()
-                    && crate::input::is_in_stick_zone(x, y);
-                crate::input::stick_zone_stats::record_touch_owned(touch_owned_by_stick_zone);
-            }
-
-            if touch_owned_by_overlay || touch_owned_by_stick_zone {
-                // Already fed to `pc_overlay_touch`/`stick_zones` above; must not also drive the
-                // host cursor.
-            } else if touch_drives_stream && !touch_owned_by_ui && app.mouse_trackpad_enabled {
-                stream_mouse_events.extend(stream_touch.map(&event, stream_size));
-            } else if desktop_mode && touch_drives_stream && !touch_owned_by_ui {
-                // In the desktop profile the rear panel is the pointer, so the clear middle of
-                // the front screen is deliberately dead space: it neither moves the cursor nor
-                // reaches the title, matching `pc_overlay_tests`' "centre is still mouse" test.
-            } else if let Some(egui_event) =
-                map_pointer_event(&event, screen_points, UI_SCALE, &mut pointer_pos)
+            // Anything the streaming router did not want still reaches the client's own interface:
+            // menus, the settings modal, the on-screen keyboard.
+            if (!touch_drives_stream || touch_owned_by_ui)
+                && let Some(egui_event) =
+                    map_pointer_event(&event, screen_points, UI_SCALE, &mut pointer_pos)
             {
                 egui_events.push(egui_event);
             }
-            if desktop_mode && touch_drives_stream {
-                let sniper = controller
-                    .as_ref()
-                    .is_some_and(|c| c.button(sdl2::controller::Button::LeftShoulder));
-                let base_percent = crate::gfn::stream_prefs::overlay_sensitivity_percent();
-                let effective_percent = if sniper {
-                    base_percent / 2
-                } else {
-                    base_percent
-                };
-                stream_mouse_events.extend(rear_overlay_mouse.map(
-                    &event,
-                    stream_size,
-                    effective_percent,
-                ));
-            }
+
             match event {
                 sdl2::event::Event::TextInput { ref text, .. } => {
                     egui_events.push(egui::Event::Text(text.clone()));
@@ -459,42 +366,43 @@ pub async fn run(mut app: App) -> Result<()> {
             None => held_direction = None,
         }
 
-        // Desktop-profile pad polling. Deliberately here rather than down in the video block:
-        // it feeds `direct_commands` and `stream_mouse_events`, both of which are consumed just
-        // below, and it is a poll (stick deflection over time) rather than an event reaction.
-        let desktop_profile_active = matches!(app.state, AppState::Streaming { .. })
-            && crate::gfn::stream_prefs::pc_overlay_enabled()
-            && crate::gfn::stream_prefs::control_profile()
-                == crate::gfn::stream_prefs::ControlProfile::Desktop;
-        if let Some(active_controller) = controller.as_ref() {
-            let now = Instant::now();
-            if desktop_profile_active {
-                let dt = now.saturating_duration_since(desktop_pad_last_tick);
-                let state = crate::input::desktop_pad_state(active_controller);
-                let sensitivity = crate::gfn::stream_prefs::overlay_sensitivity_percent();
-                for action in desktop_pad.update(state, sensitivity, dt) {
-                    match action {
-                        crate::input::DesktopPadAction::Mouse(mouse) => {
-                            stream_mouse_events.push(mouse)
+        // Pad polling, on its own clock rather than once per rendered frame.
+        //
+        // This is the latency fix. Sampling the pad inside the render loop meant a frame that took
+        // 30 ms also delayed the controller by 30 ms - so a render hiccup and input lag were the
+        // same event. Polling on elapsed time instead decouples them: the picture can stutter
+        // while the character still answers.
+        let pad = controller.as_ref().map(read_pad).unwrap_or_default();
+        let now = Instant::now();
+        if now.duration_since(last_pad_poll) >= PAD_POLL_INTERVAL {
+            last_pad_poll = now;
+            for output in stream_input.poll_pad(pad, config, now) {
+                match output {
+                    OutputEvent::Mouse(mouse) => stream_mouse_events.push(mouse),
+                    OutputEvent::Key { key, pressed } => stream_key_events.push((key, pressed)),
+                    other => {
+                        if let Some(command) = crate::input_stream::app_command_for(other)
+                            && !direct_commands.contains(&command)
+                        {
+                            direct_commands.push(command);
                         }
-                        crate::input::DesktopPadAction::KeyTap(key) => {
-                            direct_commands.push(crate::input::AppCommand::SendKey(key));
-                        }
-                        crate::input::DesktopPadAction::ToggleKeyboard => {
-                            direct_commands.push(crate::input::AppCommand::ToggleKeyboard);
-                        }
-                    }
-                }
-            } else {
-                // Switching back to the game profile mid-press must not leave a mouse button
-                // stuck down on the host.
-                for action in desktop_pad.release_all() {
-                    if let crate::input::DesktopPadAction::Mouse(mouse) = action {
-                        stream_mouse_events.push(mouse);
                     }
                 }
             }
-            desktop_pad_last_tick = now;
+        }
+        // Switching profiles or ending a session must not leave the host holding a button or a
+        // modifier. `release_all` is the one place that guarantees it.
+        let desktop_profile_active = matches!(app.state, AppState::Streaming { .. })
+            && config.desktop_active();
+        if desktop_profile_active != was_desktop_profile {
+            was_desktop_profile = desktop_profile_active;
+            for output in stream_input.release_all() {
+                match output {
+                    OutputEvent::Mouse(mouse) => stream_mouse_events.push(mouse),
+                    OutputEvent::Key { key, pressed } => stream_key_events.push((key, pressed)),
+                    _ => {}
+                }
+            }
         }
 
         for command in direct_commands {
@@ -513,25 +421,28 @@ pub async fn run(mut app: App) -> Result<()> {
             // memory card and this runs 60 times a second.
             if streaming_peer.is_some() != was_streaming {
                 was_streaming = streaming_peer.is_some();
-                if was_streaming {
-                    rear_touch.reload_intensity();
-                    stick_zones.reload_enabled();
+                if !was_streaming {
+                    // Leaving a session: settle anything the host is still holding.
+                    for output in stream_input.release_all() {
+                        match output {
+                            OutputEvent::Mouse(mouse) => stream_mouse_events.push(mouse),
+                            OutputEvent::Key { key, pressed } => {
+                                stream_key_events.push((key, pressed))
+                            }
+                            _ => {}
+                        }
+                    }
                 }
             }
             let latest_video = streaming_peer.and_then(|peer| peer.video_frame());
             surface.sync_video_frame(streaming_peer, latest_video.as_ref())?;
-            if let (Some(peer), Some(active_controller)) = (streaming_peer, controller.as_ref()) {
-                // v0.5.0: the overlay no longer neutralizes anything on its own. Only the
-                // *desktop* profile takes the pad away, and when it does it takes all of it and
-                // turns it into a mouse/keyboard instead (see the polling block above). In the
-                // game profile the snapshot is built from the real rear triggers and stick zones
-                // exactly as it is with the overlay off - which is what the 0.4.x code got
-                // wrong, silently killing L2/R2, L3/R3 and half the d-pad the moment the overlay
-                // was switched on.
+            if let Some(peer) = streaming_peer {
+                // The game profile forwards the pad exactly as the hardware reports it - that is
+                // the promise it makes, and `bindings::the_game_profile_forwards_every_control`
+                // enforces it in a test. The desktop profile takes the whole pad instead and sends
+                // a neutral one, because a title that sees sticks frozen where they were when the
+                // profile switched is worse than one that sees them centred.
                 if desktop_profile_active {
-                    // A neutral pad still has to be sent every frame: the host times out an
-                    // input channel that goes quiet, and the title must see sticks centred
-                    // rather than stuck wherever they were when the profile switched.
                     peer.send_gamepad(crate::gfn::input_protocol::GamepadInput {
                         controller_id: 0,
                         buttons: 0,
@@ -544,20 +455,20 @@ pub async fn run(mut app: App) -> Result<()> {
                         timestamp_us: 0,
                     });
                 } else {
-                    peer.send_gamepad(gamepad_snapshot(
-                        active_controller,
-                        &rear_touch,
-                        &stick_zones,
-                    ));
+                    peer.send_gamepad(gamepad_snapshot(pad, &stream_input, config));
                 }
-                crate::input::stick_zone_stats::record_clicks(
-                    stick_zones.left_stick_click(),
-                    stick_zones.right_stick_click(),
-                );
+                let (l3, r3) = stream_input.stick_clicks(config);
+                let (l2, r2) = stream_input.triggers(config);
+                crate::input::stats::record(l3, r3, l2, r2);
             }
             if let Some(peer) = streaming_peer {
                 for mouse_event in stream_mouse_events.drain(..) {
                     peer.send_mouse(mouse_event);
+                }
+                // Keys are sent as explicit down/up pairs rather than taps, so a modifier can span
+                // the key it modifies. `ModifierLatch` guarantees every down has its up.
+                for (key, pressed) in stream_key_events.drain(..) {
+                    peer.send_key(key, pressed);
                 }
             }
             // Audio no longer passes through here at all: the peer thread hands packets to the
@@ -603,6 +514,11 @@ pub async fn run(mut app: App) -> Result<()> {
             events: egui_events,
             ..Default::default()
         };
+
+        if app.flash_manual {
+            app.flash_manual = false;
+            crate::app::ui::flash_control_manual(start_time.elapsed().as_secs_f64());
+        }
 
         let build_ui_started_at = Instant::now();
         let mut ui_commands = Vec::new();

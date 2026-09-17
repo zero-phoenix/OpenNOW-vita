@@ -363,5 +363,7 @@ settings-overlay-opacity-ghost = Призрачный
 settings-overlay-opacity-strong = Сильный
 settings-control-profile-heading = Профиль управления
 settings-control-profile-desc = Игра отправляет все кнопки в игру. Рабочий стол превращает Vita в мышь и клавиатуру.
+settings-overlay-autofade-heading = Приглушать полосу без касаний
+settings-overlay-autofade-desc = В игровом профиле полоса клавиш тускнеет до 35 % через шесть секунд без касания и сразу возвращается при касании экрана. Всегда видна, но не мешает картинке.
 settings-control-profile-game = Игра
 settings-control-profile-desktop = Рабочий стол
