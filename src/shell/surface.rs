@@ -26,6 +26,9 @@ pub struct FramePaintStats {
 pub const WIDTH: u32 = 960;
 pub const HEIGHT: u32 = 544;
 
+/// SDL's name for the Vita's native GXM renderer, as `SDL_GetRenderDriverInfo` reports it.
+const GXM_RENDER_DRIVER: &str = "VITA gxm";
+
 /// Owns the SDL window/canvas, the egui painter, and the two streaming BGR565 video textures that
 /// the frame producer (`gfn::peer`) writes into directly - the video never round-trips through
 /// egui, which is what keeps the Vita inside its VRAM budget.
@@ -47,17 +50,59 @@ impl VitaSurface {
     pub fn new(video: &sdl2::VideoSubsystem) -> Result<Self> {
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "1");
 
+        // Pin the renderer to the Vita's own GXM backend instead of letting SDL pick.
+        //
+        // `.accelerated()` on its own means "the first driver that claims acceleration", and as of
+        // the September 2026 VitaSDK image that is no longer GXM: this SDL2 is built with the GLES2
+        // renderer on top of vitaGL, and GLES2 sits ahead of `VITA gxm` in SDL's driver table.
+        // Letting SDL choose costs us twice over. Trying GLES2 recreates the window with
+        // SDL_WINDOW_OPENGL, which runs `vglInitExtended` and takes ownership of GXM; GLES2 then
+        // fails, because vitaGL needs `libshacccg.suprx` to compile its shaders and neither Vita3K
+        // nor a plain Vita has that module; SDL falls back to `VITA gxm`, whose
+        // `sceGxmCreateContext` now answers SCE_GXM_ERROR_ALREADY_INITIALIZED - and the renderer
+        // goes on to dereference the context it did not get. The app dies on startup before drawing
+        // a single frame.
+        //
+        // Even where vitaGL does work, going through GL would be the wrong trade here: the whole
+        // point of the direct-texture path below is handing BGR565 frames straight to GXM.
+        //
+        // The hint covers any renderer SDL creates; the explicit index is what actually pins this
+        // one, since an index makes SDL skip driver selection altogether rather than matching on a
+        // name string that could change.
+        sdl2::hint::set("SDL_RENDER_DRIVER", GXM_RENDER_DRIVER);
+        let gxm_driver_index = sdl2::render::drivers()
+            .position(|driver| driver.name == GXM_RENDER_DRIVER)
+            .map(|index| index as u32);
+        if gxm_driver_index.is_none() {
+            let names: Vec<&str> = sdl2::render::drivers().map(|driver| driver.name).collect();
+            eprintln!(
+                "no '{GXM_RENDER_DRIVER}' render driver in this SDL2 build (has: {names:?}); \
+                 falling back to SDL's own choice"
+            );
+        }
+
         let window = video
             .window("OpenNOW Vita", WIDTH, HEIGHT)
             .position_centered()
             .build()
             .context("failed to create SDL Vita window")?;
-        let mut canvas = window
-            .into_canvas()
-            .accelerated()
+        let mut builder = window.into_canvas().accelerated();
+        if let Some(index) = gxm_driver_index {
+            builder = builder.index(index);
+        }
+        let mut canvas = builder
             .build()
             .map_err(anyhow::Error::msg)
             .context("failed to create SDL Vita renderer")?;
+        let active_driver = canvas.info().name;
+        if active_driver == GXM_RENDER_DRIVER {
+            eprintln!("renderer: {active_driver}");
+        } else {
+            eprintln!(
+                "renderer: {active_driver} (expected {GXM_RENDER_DRIVER}) - video is going through \
+                 GL, which is slower and needs libshacccg.suprx"
+            );
+        }
         canvas
             .set_logical_size(WIDTH, HEIGHT)
             .map_err(anyhow::Error::msg)

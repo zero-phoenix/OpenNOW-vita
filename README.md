@@ -356,12 +356,26 @@ image definition matching what CI installs, so a local build and a CI build are 
 
 ```sh
 docker build -t opennow-build - < scripts/Dockerfile.build
-docker run --rm -v "$PWD:/work" -w /work opennow-build sh scripts/docker-build.sh vpk
+docker volume create opennow-cargo                 # once: keeps the crate registry between runs
+docker run --rm -v "$PWD:/work" -v opennow-cargo:/root/.cargo/registry -w /work \
+  opennow-build sh scripts/docker-build.sh vpk
 ```
 
-Keeping the toolchain in an image rather than reinstalling Rust and `cargo-vita` on every run
-turns a rebuild from several minutes into seconds, which matters when you are chasing a compile
-error rather than producing a release.
+`docker-build.sh` runs the host tests first and then delegates to the `Makefile`, which is the one
+place the link flags are spelled out.
+
+Two things earn their keep here. Keeping the toolchain in an image rather than reinstalling Rust
+and `cargo-vita` on every run turns a rebuild from several minutes into seconds. And the registry
+volume: without it each `--rm` run starts from the image again, re-downloads and re-extracts every
+crate, and cargo — which decides what is stale from the source files it finds — rebuilds std and
+all 300-odd dependencies. Sixteen minutes, every time. With it, a source-only change is about
+three.
+
+On the September 2026 image the link step needs four libraries that nothing pulls in on its own —
+`-lSceShaccCgExt -lSceShaccCg_stub -lstdc++ -ltaihen_stub_weak` — because SDL2's installed
+`pkg-config` data lists neither the Cg extension stubs nor the C++ runtime that libvitaGL and
+libvitashark now reference. They are already in the `Makefile`; the note is here so the wall of
+`undefined reference to std::__throw_length_error` is recognisable if you build another way.
 
 > **On Windows**: `.gitattributes` pins the `tools/vita-*` wrappers to LF. Without it a checkout
 > with `core.autocrlf` on rewrites their shebang as `/bin/sh\r`, and the linker then reports

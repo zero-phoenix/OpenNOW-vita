@@ -5,7 +5,12 @@
 # build reproducible without installing VitaSDK, a nightly Rust and cargo-vita on the host.
 #
 #   docker build -t opennow-build - < scripts/Dockerfile.build
-#   docker run --rm -v "$PWD:/work" -w /work opennow-build sh scripts/docker-build.sh
+#   docker volume create opennow-cargo
+#   docker run --rm -v "$PWD:/work" -v opennow-cargo:/root/.cargo/registry -w /work \
+#     opennow-build sh scripts/docker-build.sh vpk
+#
+# Keep the registry volume: without it every run re-downloads the crates and cargo rebuilds the
+# world, which is sixteen minutes instead of three.
 set -u
 cd "$(dirname "$0")/.."
 

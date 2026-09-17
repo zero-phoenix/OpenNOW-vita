@@ -74,6 +74,17 @@ that first, and the very first run of the previously-unrunnable tests failed - s
 
 ### Fixed
 
+- **The client crashed on startup on the current toolchain, before drawing a frame.** SDL's
+  renderer was asked for "the first accelerated driver", and as of the September 2026 VitaSDK image
+  that is no longer GXM: SDL2 is now built with the GLES2 renderer on top of vitaGL, registered
+  ahead of `VITA gxm`. Trying GLES2 recreates the window with `SDL_WINDOW_OPENGL`, which runs
+  `vglInitExtended` and takes ownership of GXM; GLES2 then fails, because vitaGL needs
+  `libshacccg.suprx` to compile its shaders and neither Vita3K nor a stock Vita has that module;
+  SDL falls back to `VITA gxm`, whose `sceGxmCreateContext` now answers
+  `SCE_GXM_ERROR_ALREADY_INITIALIZED` - and the renderer dereferences the context it did not get.
+  The renderer is now pinned to `VITA gxm` by index, and logs which driver it actually got. Going
+  through GL would have been the wrong trade regardless: the direct-texture path exists to hand
+  BGR565 frames straight to GXM.
 - **A latent bug in `encode_gamepad_state_partially_reliable`**, found by running its own test for
   the first time: it asserts a 54-byte frame, its doc comment describes a 42-byte one, and the code
   emits 40, because the inner payload is 24 bytes where its own length field claims 26. The encoder
@@ -88,6 +99,21 @@ that first, and the very first run of the previously-unrunnable tests failed - s
 - **CRLF line endings no longer break the build on Windows.** A checkout with `core.autocrlf` on
   rewrote the VitaSDK wrapper scripts, turning their shebang into `/bin/sh\r`, and the kernel then
   reports "No such file or directory" for a file that is plainly there. `.gitattributes` pins them.
+
+### Build
+
+- **The VPK links again.** SDL2's installed `pkg-config` data lists neither `SceShaccCgExt` nor
+  `stdc++`, so as of the September 2026 image nothing pulled in what libvitaGL and libvitashark
+  now need, and the link step died in a wall of `undefined reference to std::__throw_length_error`
+  and `sceShaccCgExtEnableExtensions`. Untouched `master` failed identically on the same image, so
+  this is the toolchain having moved, not a regression here. Four libraries, in the order ld needs
+  them: `-lSceShaccCgExt -lSceShaccCg_stub -lstdc++ -ltaihen_stub_weak`. The taiHEN stub is the
+  *weak* one deliberately - a normal taiHEN import makes module load fail wherever taiHEN is
+  absent, which is exactly the case under Vita3K.
+- **A reproducible local build**, in the same container CI uses: `scripts/Dockerfile.build` plus
+  `scripts/docker-build.sh`, which runs the host tests and then delegates to the `Makefile` so the
+  link flags have exactly one definition. Mounting a named volume at `/root/.cargo/registry` turns
+  a 16-minute cold build into a 3-minute one.
 
 ## [0.5.0] - 2026-09-13
 

@@ -2,7 +2,14 @@
 # .github/workflows/build.yml installs, so a build that passes locally passes in CI.
 #
 #   docker build -t opennow-build - < scripts/Dockerfile.build
-#   docker run --rm -v "$PWD:/work" -w /work opennow-build sh scripts/docker-build.sh vpk
+#   docker volume create opennow-cargo
+#   docker run --rm -v "$PWD:/work" -v opennow-cargo:/root/.cargo/registry -w /work \
+#     opennow-build sh scripts/docker-build.sh vpk
+#
+# The registry volume matters more than it looks: without it each `--rm` run starts from the image
+# again, re-downloads and re-extracts every crate, and cargo - which decides what is stale from the
+# source files it finds - rebuilds std and all 300-odd dependencies. Sixteen minutes, every time.
+# With it, a source-only change is about three.
 FROM vitasdk/vitasdk:latest
 
 RUN (apk add --no-cache curl bash make git build-base) || \
