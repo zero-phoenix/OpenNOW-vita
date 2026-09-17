@@ -39,6 +39,7 @@ egui for the UI, direct-to-texture hardware video decoding, and VPK packaging vi
 - [Getting a build](#getting-a-build)
 - [Build requirements](#build-requirements)
 - [Building locally](#building-locally)
+- [Tests](#tests)
 - [Continuous integration & releases](#continuous-integration--releases)
 - [Project layout](#project-layout)
 - [Acknowledgements](#acknowledgements)
@@ -128,6 +129,11 @@ this fork adds:
    official VitaSDK container, and every `v*` tag publishes it as a GitHub Release with
    release notes pulled straight from `CHANGELOG.md` — no more manual builds to hand someone
    a working `.vpk`.
+6. **[Tests that actually run](#tests)** — the input mapping and the NVST wire format live in
+   `opennow-core`, a dependency-free crate that builds on any PC. Before 0.6.0 `cargo test`
+   could not build at all: the binary linked ARM `libopus` and a static SDL2 unconditionally
+   and there was no library target, so "verified" only ever meant "it compiled". 73 tests now
+   run in under a second, and the first run of them found a real bug.
 
 See `CHANGELOG.md` for the complete, dated history of every change, including everything
 inherited from upstream.
@@ -153,11 +159,19 @@ tap:
 | L / R | L1 / R1 | L = precision mode (½ sensitivity), R = double-click |
 | Rear panel | L2 / R2, pressure-graded | mouse cursor + click (left half / right half) |
 | Front bottom corners | L3 / R3 | modifier & key strip |
+| Front top edge | `ESC` `⏎` `⌨` `ALT+F4` | full key strip |
 | SELECT / START | to the title | on-screen keyboard / Windows key |
 
 The game profile forwards **everything** to the title, untouched — it is byte-for-byte what you
 get with the overlay switched off, which is what makes Death Stranding- and Silent Hill f-class
-titles actually playable while the overlay is still on screen.
+titles actually playable while the overlay is still on screen. A test enforces it: if a future
+edit ever repurposes a control there, `the_game_profile_forwards_every_control` fails before the
+change reaches a console.
+
+The four keys along the top edge are the one exception, and they cost the pad nothing: NVST
+carries no touch to the title, so in the game profile the front screen is dead space anyway.
+They fire when your finger **lifts**, and only after a short, still press — a thumb resting on
+the top edge while you play does not fire Escape into the game.
 
 ### The eye
 
@@ -168,11 +182,16 @@ must never be able to fade into the picture.
 - **Tap the eye** — reveal or hide the entire overlay.
 - **Tap the switch directly under the eye** — swap between the game and desktop profiles. It is
   live in both profiles, so you can never strand yourself in game mode with no way out.
-- While revealed, a **minimalist control manual** is drawn in the middle of the screen listing
-  what every stick and button does *in the profile you are currently in*.
+- After a **profile switch**, a minimalist control manual flashes in the middle of the screen for
+  four seconds, listing what every stick and button does in the profile you just switched *into*.
+  It is generated from the bindings table, so it cannot describe a layout the client does not
+  have, and it does not linger: 0.5.0 drew it permanently, in *both* profiles, which put a text
+  card over the picture for the whole session.
 
-Overlay on/off, revealed/hidden, the active profile, opacity (five steps, Ghost → Bold) and
-mouse sensitivity are all persistent preferences under **Settings → Controls**.
+In the game profile the key strip **dims to 35 % after six idle seconds** and snaps back the
+moment you touch the screen — always visible, without competing with the picture. Overlay
+on/off, revealed/hidden, the active profile, opacity (five steps, Ghost → Bold), the idle
+dimming and mouse sensitivity are all persistent preferences under **Settings → Controls**.
 
 ### Front-screen layout (desktop profile)
 
@@ -191,12 +210,21 @@ corners the stick zones need.
 │ ▼                                                  ▼       
 │                                                            │
 ├────────────────────────────────────────────────────────────┤
-│ SHIFT   CTRL   ALT   ⏎   ⌫   C-A-DEL                       │
+│ SHIFT  CTRL  ALT  ⏎  ⌫  SUPR  ATAJOS  C-A-DEL              │
 └────────────────────────────────────────────────────────────┘
 ```
 
 Shift/Ctrl/Alt are **sticky** modifiers, shared with the on-screen keyboard's own modifier
-state, so `Ctrl` then a letter from the keyboard is a real chord.
+state, so `Ctrl` then a letter from the keyboard is a real chord — and all four modifiers,
+Shift included, are now sent as real held keys, which is what makes `Ctrl+Shift+Esc` reach the
+host at all. `ATAJOS` opens a page of one-tap Windows shortcuts (Start, show desktop, Explorer,
+task view, Alt+Tab, Alt+F4, task manager, lock, and the rest).
+
+Every zone above comes from one `const` table in `core/src/input/layout.rs`, which the renderer
+and the hit-test both read. That is deliberate: they used to be two functions "derived from the
+same constants", which is not the same thing and is how a button ends up drawn somewhere it
+cannot be pressed. Three tests hold the line — no two live zones overlap, nothing can ever cover
+the eye, and every drawn zone answers at its own centre.
 
 ### Rear panel as a mouse
 
@@ -323,19 +351,49 @@ Uploading requires [VitaShell](https://github.com/TheOfficialFloW/VitaShell)'s F
 installs and runs in the Vita3K emulator (subject to the `sceNet` stub limitation noted in
 [Status](#status) above).
 
-If you don't have VitaSDK installed natively, the whole build works unmodified inside the
-official container image:
+If you don't have VitaSDK installed natively, build in the container instead. `scripts/` has an
+image definition matching what CI installs, so a local build and a CI build are the same build:
 
 ```sh
-docker run --rm -v "$PWD:/workspace" -w /workspace -e VITASDK=/usr/local/vitasdk \
-  vitasdk/vitasdk:latest bash -c '
-    curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly --profile minimal
-    export PATH="/usr/local/vitasdk/bin:$HOME/.cargo/bin:$PATH"
-    rustup component add rust-src --toolchain nightly
-    cargo +nightly install cargo-vita
-    make vpk
-  '
+docker build -t opennow-build - < scripts/Dockerfile.build
+docker run --rm -v "$PWD:/work" -w /work opennow-build sh scripts/docker-build.sh vpk
 ```
+
+Keeping the toolchain in an image rather than reinstalling Rust and `cargo-vita` on every run
+turns a rebuild from several minutes into seconds, which matters when you are chasing a compile
+error rather than producing a release.
+
+> **On Windows**: `.gitattributes` pins the `tools/vita-*` wrappers to LF. Without it a checkout
+> with `core.autocrlf` on rewrites their shebang as `/bin/sh\r`, and the linker then reports
+> *"No such file or directory"* for a file that is plainly sitting there. `docker-build.sh`
+> repairs an existing checkout as well.
+
+## Tests
+
+```sh
+cargo test -p opennow-core --target x86_64-unknown-linux-gnu
+```
+
+73 tests, under a second, on any PC — no VitaSDK, no console, no emulator. That is the whole
+reason `opennow-core` exists as a separate crate: the binary links a static SDL2, ARM `libopus`
+and the VitaSDK stubs unconditionally, so before 0.6.0 `cargo test` could not build at all and
+"verified" could only ever mean "it compiled and linked".
+
+What they cover, and why each one is there:
+
+| Test | The bug it exists to prevent |
+|---|---|
+| `the_front_screen_does_not_drive_the_cursor_in_the_desktop_profile` | The reported one: the rear panel was the pointer, and the front screen was *also* the pointer |
+| `no_two_live_zones_overlap_in_the_same_profile` | Two controls fighting over the same pixel, winner decided by iteration order |
+| `nothing_can_cover_the_eye` | Losing the only way back out of a hidden overlay |
+| `every_drawn_zone_answers_at_its_own_centre` | A button drawn where it cannot be pressed |
+| `the_game_profile_forwards_every_control` | 0.4.x, where switching the overlay on silently killed L2/R2, L3/R3 and half the D-pad |
+| `every_press_is_eventually_released` | A host left holding Ctrl after the session ends — a property test over 500 random sequences |
+| `a_slow_stick_nudge_still_moves_the_cursor` | Sub-pixel movement rounding to zero every frame, so a gentle stick never moves at all |
+| `the_middle_of_the_screen_belongs_to_nobody` | The overlay creeping back over the picture |
+
+The Vita build itself is checked the only way it can be — by building it, locally in the
+container above and in CI on every push.
 
 ## Continuous integration & releases
 
@@ -368,6 +426,16 @@ artifact upload needed.
 tools/                   vita-gcc/vita-ar/vita-pkg-config wrappers (VitaSDK)
 static/sce_sys/          App metadata (icon, LiveArea) packaged into the VPK
 scripts/sync-vita-version.sh   Keeps the VPK's APP_VER lined up with [package].version
+scripts/Dockerfile.build       Build image matching CI, for reproducible local builds
+scripts/docker-build.sh        Host tests + Vita build, run inside that image
+core/                    opennow-core: the pure half, testable on any PC (73 tests)
+  src/protocol.rs         NVST wire format: gamepad/key/mouse/wheel packet encoding
+  src/config.rs           The settings the input mapping depends on, as one Copy snapshot
+  src/input/layout.rs     THE layout table — renderer and hit-test both read this one list
+  src/input/router.rs     route_touch(): whose finger is this, in a written precedence order
+  src/input/bindings.rs   What each control means, per profile; the manual is generated from it
+  src/input/mapper.rs     Sticks/buttons/touch -> events; ModifierLatch's press/release invariant
+  src/input/physical.rs   The hardware state as plain data, plus the deadzone maths
 src/
   main.rs                Entry point; Vita heap/stack sizing, CDRAM reservation
   logger.rs               File-backed logging (`ux0:/data/opennow/logs` on-device)
@@ -380,9 +448,10 @@ src/
     mod.rs                Main loop: SDL2 window/event pump, frame pacing
     egui_painter.rs        egui render backend on top of the Vita's GXM/SDL2 surface
     surface.rs             Direct video surface shared with the decode worker
-  input.rs               SDL2 event mapping (keyboard/controller/touch), front/rear touch
-                          zone routing (PC overlay zones, FrontStickZones, trackpad), physical
-                          button macros, XInput snapshots
+  input.rs               Menu-side SDL2 event mapping and the AppCommand enum
+  input_stream.rs        Layer 1 of the input stack: SDL events in, opennow-core values out.
+                          Every decision it makes comes from `core/` and is covered by a test
+                          there; what is left here is the part that genuinely cannot be
   jobs.rs                Background async task plumbing
   power.rs               CPU/GPU clock profile for streaming
   safe_memory.rs          Encrypted token storage in the Vita's Safe Memory

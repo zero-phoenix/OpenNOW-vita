@@ -18,4 +18,22 @@ linker = "tools/vita-gcc"
 # `cargo build --target armv7-sony-vita-newlibeabihf` does honor it) - when building via
 # `cargo vita build`, export RUSTFLAGS="-C target-feature=-neon" in the shell instead (the
 # Makefile in this repo already does this).
-rustflags = ["-C", "target-feature=-neon"]
+rustflags = [
+    "-C",
+    "target-feature=-neon",
+    # SDL2 pulls in libvitaGL and libvitashark, which are C++ and reference the Cg shader
+    # extension stubs. Neither was being linked, so as of the September 2026 `vitasdk/vitasdk`
+    # image the link step fails with a wall of `undefined reference to std::__throw_length_error`
+    # and `sceShaccCgExtEnableExtensions`. It is not a code problem and not new to this branch -
+    # `master` fails identically on the same image - it is the toolchain image having moved under
+    # us. These three are what SDL2's own dependencies need; they go last so ld resolves them
+    # after the libraries that ask for them.
+    "-C",
+    "link-arg=-lSceShaccCgExt",
+    "-C",
+    "link-arg=-lSceShaccCg_stub",
+    "-C",
+    "link-arg=-lstdc++",
+    "-C",
+    "link-arg=-ltaihen_stub_weak",
+]

@@ -5,6 +5,90 @@ All notable changes to OpenNOW Vita are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-17
+
+Control rewrite, and the reason the last one could not be trusted: **the tests had never run.**
+`src/streaming/audio.rs` and `src/shell/mod.rs` linked ARM `libopus` and a static SDL2
+unconditionally, and the crate had no library target, so `cargo test` could not build at all on a
+PC. Every previous "verified" claim rested on the code compiling and linking. This release fixes
+that first, and the very first run of the previously-unrunnable tests failed - see below.
+
+### Added
+
+- **`opennow-core`**, a dependency-free workspace crate holding the NVST wire format and the whole
+  input mapping. It builds and tests on any PC in seconds: **73 tests**, covering touch routing,
+  the zone layout, every binding, the pointer and scroll maths, and the packet encodings.
+- **One layout table.** `core/src/input/layout.rs` holds every on-screen zone once, and both the
+  renderer and the hit-test read *that table*. The previous design had two functions "derived from
+  the same constants", which is not the same thing and is how a button ends up drawn where it
+  cannot be pressed. Three tests enforce it: no two live zones overlap, nothing can cover the eye,
+  and every drawn zone answers at its own centre.
+- **A written precedence order.** `route_touch` replaces a 25-line `if`/`else if` chain inside the
+  60 Hz event loop with one function whose ordering is a list you can read.
+- **A minimal key strip in the game profile**: `ESC`, `Enter`, the keyboard toggle and `Alt+F4`
+  along the top edge, always available. The front screen is dead space in the game profile anyway -
+  NVST carries no touch to the title - so this costs the pad nothing.
+- **Tap-to-fire, not press-to-fire.** Strip keys fire when the finger *lifts*, and only after a
+  short, still press. That is what makes a permanently visible strip safe while playing: a thumb
+  resting on the top edge no longer fires Escape into the game.
+- **Shift in chords.** `SendChord` now holds all four modifiers as real keys. `Ctrl+Shift+Esc` and
+  the whole family of Shift shortcuts were previously impossible to send.
+- **A Windows-shortcut page** on the on-screen keyboard: Start, Show desktop, Explorer, Task view,
+  Maximise, Alt+Tab, Alt+F4, Task manager, Copy, Paste, Undo, Select all, Fullscreen, Lock, the
+  security screen and Search - one tap each.
+- **Missing keys**: `Insert`, `Delete`, `PageUp`, `PageDown` and `CapsLock`. Their constants already
+  existed in the protocol; they had simply never been put on a keycap.
+- **Auto-fade** for the game profile's strip: it dims to 35 % after six idle seconds and snaps back
+  on contact, so "always visible" stops competing with the picture. Switchable in
+  **Settings -> Controls**.
+- **Input diagnostics** in the stats overlay (`l3 r3 l2 r2`), so a "the controls don't work" report
+  can be checked against what the router decided rather than guessed at from source.
+- **A reproducible local build** (`scripts/Dockerfile.build`, `scripts/docker-build.sh`): the same
+  VitaSDK container CI uses, so a local build and a CI build are the same build.
+
+### Changed
+
+- **The front screen no longer drives the cursor in the desktop profile.** The trackpad branch was
+  evaluated *before* the desktop-profile branch and the preference defaults to on, so the "the
+  middle of the screen is deliberately dead space" branch below it was unreachable. The comment was
+  right about the intent and wrong about the behaviour.
+- **The control manual is off the picture.** It was painted across the centre of the screen in
+  *both* profiles whenever the overlay was revealed - a text card over Death Stranding for the whole
+  session. It now flashes for four seconds after a profile switch, which is the one moment it is
+  wanted, and otherwise lives in Settings.
+- **The manual is generated from the bindings table** rather than written out by hand, so it cannot
+  describe a layout the client does not have.
+- **L3/R3 corners shrank** from the bottom third of the screen (`y >= 0.66`) to `y >= 0.80`, handing
+  about 87 px of picture back. They stay live when the overlay is hidden: they are pad buttons, not
+  overlay controls.
+- **The pad is sampled at 120 Hz on its own clock**, not once per rendered frame. Sampling inside
+  the render loop meant a 30 ms frame also delayed the controller by 30 ms - a render hiccup and
+  input lag were the same event. They are now independent.
+- **Reading a preference no longer clones the whole settings struct.** `pc_overlay_enabled()`,
+  `control_profile()` and `overlay_revealed()` were called once per SDL event inside the event loop,
+  and each returned a `clone()` of an `AppSettings` containing a `BTreeMap` and eight `String`s.
+  With a thumb dragging across the panel that is dozens of clones and hundreds of allocations per
+  frame - not much CPU, but a steady supply of the heap fragmentation that surfaces as a stall with
+  no obvious cause. All twenty accessors now read through the cache, and the mapping is handed one
+  `Copy` snapshot per frame instead of reaching into global state.
+
+### Fixed
+
+- **A latent bug in `encode_gamepad_state_partially_reliable`**, found by running its own test for
+  the first time: it asserts a 54-byte frame, its doc comment describes a 42-byte one, and the code
+  emits 40, because the inner payload is 24 bytes where its own length field claims 26. The encoder
+  is unused, so nothing was broken - but three different numbers in one function is exactly what a
+  "compiles and links" check cannot see. Left as-is rather than guessed at (inventing two bytes of a
+  binary protocol is worse than no partial reliability), with the test now pinning what it really
+  emits and a comment explaining what to check it against.
+- **Modifiers can no longer be stranded on the host.** A `ModifierLatch` tracks what was actually
+  pressed - as distinct from what is merely *latched* - and releases exactly that on profile switch
+  and session end. A property test over 500 random sequences asserts every press is eventually
+  released and nothing is ever released twice.
+- **CRLF line endings no longer break the build on Windows.** A checkout with `core.autocrlf` on
+  rewrote the VitaSDK wrapper scripts, turning their shebang into `/bin/sh\r`, and the kernel then
+  reports "No such file or directory" for a file that is plainly there. `.gitattributes` pins them.
+
 ## [0.5.0] - 2026-09-13
 
 Complete redesign of the on-screen controls. 0.4.x shipped the PC-touch overlay switched **off**
