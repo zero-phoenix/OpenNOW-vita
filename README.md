@@ -4,6 +4,8 @@
 [![Latest release](https://img.shields.io/github/v/release/zero-phoenix/OpenNOW-vita?label=latest%20release)](https://github.com/zero-phoenix/OpenNOW-vita/releases/latest)
 [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 
+🇪🇸 **[Este README en español](README.es.md)** — same content, kept in step with this file.
+
 **OpenNOW Vita** is a native homebrew **GeForce NOW client for the PlayStation Vita**, written
 entirely in Rust. It signs in to your GFN account on the console itself, lists your game
 library with cover art, negotiates a real WebRTC session against NVIDIA's streaming
@@ -40,6 +42,7 @@ egui for the UI, direct-to-texture hardware video decoding, and VPK packaging vi
 - [Build requirements](#build-requirements)
 - [Building locally](#building-locally)
 - [Tests](#tests)
+- [Troubleshooting](#troubleshooting)
 - [Continuous integration & releases](#continuous-integration--releases)
 - [Project layout](#project-layout)
 - [Acknowledgements](#acknowledgements)
@@ -193,6 +196,26 @@ moment you touch the screen — always visible, without competing with the pictu
 on/off, revealed/hidden, the active profile, opacity (five steps, Ghost → Bold), the idle
 dimming and mouse sensitivity are all persistent preferences under **Settings → Controls**.
 
+### Front-screen layout (game profile)
+
+Four keys in a 44 px strip along the top, and nothing else over the picture. `EYE` is the
+reveal/hide toggle, `SW` the profile switch directly under it. `L3`/`R3` are the bottom corners,
+and they stay live even with the overlay hidden — they are pad buttons, not overlay controls.
+
+```
++-------------------------------------------------+------+
+|    ESC        ENTER         KB        ALT+F4    | EYE  |
++-------------------------------------------------+------+
+|                                                 |  SW  |
+|                                                 +------+
+|                                                        |
+|                 the picture, untouched                 |
+|                                                        |
++--------------+--------------------------+--------------+
+|      L3      |                          |      R3      |
++--------------+--------------------------+--------------+
+```
+
 ### Front-screen layout (desktop profile)
 
 The keys live in two thin strips along the top and bottom edges plus two narrow slider rails,
@@ -226,7 +249,65 @@ same constants", which is not the same thing and is how a button ends up drawn s
 cannot be pressed. Three tests hold the line — no two live zones overlap, nothing can ever cover
 the eye, and every drawn zone answers at its own centre.
 
+### The exact geometry
+
+Straight out of that table. Coordinates are normalised (0–1) in the source; the pixel column is
+those values on the Vita's 960×544 panel. "Live when" is the condition in `Live::is_live`:
+`always` ignores the reveal state entirely, `revealed` needs the overlay revealed in either
+profile, and `game + sticks` is independent of reveal because L3/R3 are pad buttons.
+
+| Zone | Live when | x0,y0 – x1,y1 (normalised) | in pixels |
+|---|---|---|---|
+| `Eye` | always | 0.880,0.000 – 1.000,0.110 | 845,0 – 960,60 |
+| `ModeToggle` | revealed | 0.880,0.110 – 1.000,0.220 | 845,60 – 960,120 |
+| `Esc` | game | 0.000,0.000 – 0.220,0.080 | 0,0 – 211,44 |
+| `Enter` | game | 0.220,0.000 – 0.440,0.080 | 211,0 – 422,44 |
+| `Keyboard` | game | 0.440,0.000 – 0.660,0.080 | 422,0 – 634,44 |
+| `AltF4` | game | 0.660,0.000 – 0.880,0.080 | 634,0 – 845,44 |
+| `Esc` | desktop | 0.000,0.000 – 0.110,0.110 | 0,0 – 106,60 |
+| `Tab` | desktop | 0.110,0.000 – 0.220,0.110 | 106,0 – 211,60 |
+| `Win` | desktop | 0.220,0.000 – 0.330,0.110 | 211,0 – 317,60 |
+| `AltTab` | desktop | 0.330,0.000 – 0.440,0.110 | 317,0 – 422,60 |
+| `Copy` | desktop | 0.440,0.000 – 0.550,0.110 | 422,0 – 528,60 |
+| `Paste` | desktop | 0.550,0.000 – 0.660,0.110 | 528,0 – 634,60 |
+| `Keyboard` | desktop | 0.660,0.000 – 0.770,0.110 | 634,0 – 739,60 |
+| `Settings` | desktop | 0.770,0.000 – 0.880,0.110 | 739,0 – 845,60 |
+| `Shift` | desktop | 0.000,0.890 – 0.125,1.000 | 0,484 – 120,544 |
+| `Ctrl` | desktop | 0.125,0.890 – 0.250,1.000 | 120,484 – 240,544 |
+| `Alt` | desktop | 0.250,0.890 – 0.375,1.000 | 240,484 – 360,544 |
+| `Enter` | desktop | 0.375,0.890 – 0.500,1.000 | 360,484 – 480,544 |
+| `Backspace` | desktop | 0.500,0.890 – 0.625,1.000 | 480,484 – 600,544 |
+| `Delete` | desktop | 0.625,0.890 – 0.750,1.000 | 600,484 – 720,544 |
+| `Shortcuts` | desktop | 0.750,0.890 – 0.875,1.000 | 720,484 – 840,544 |
+| `CtrlAltDel` | desktop | 0.875,0.890 – 1.000,1.000 | 840,484 – 960,544 |
+| `DpiSlider` | desktop | 0.000,0.300 – 0.070,0.720 | 0,163 – 67,392 |
+| `ScrollSlider` | desktop | 0.930,0.300 – 1.000,0.720 | 893,163 – 960,392 |
+| `StickLeft` | game + sticks | 0.000,0.800 – 0.250,1.000 | 0,435 – 240,544 |
+| `StickRight` | game + sticks | 0.750,0.800 – 1.000,1.000 | 720,435 – 960,544 |
+
+Which leaves, in the desktop profile, a clear rectangle from **67,60 to 893,484** — 826×424 of
+the 960×544 panel, 67 % of its area, with nothing drawn on it. In the game profile everything
+below y=44 is clear except the two bottom corners.
+
 ### Rear panel as a mouse
+
+The rear panel is the one surface that changes meaning completely between the two profiles:
+
+```
+Game profile
++----------------------------+---------------------------+
+|             L2             |            R2             |
+|     0..255 by how far      |     0..255 by how far     |
+|        up the panel        |       up the panel        |
++----------------------------+---------------------------+
+
+Desktop profile
++--------------------------------------------------------+
+|       drag anywhere = move the cursor (relative)       |
++----------------------------+---------------------------+
+|      tap = LEFT click      |     tap = RIGHT click     |
++----------------------------+---------------------------+
+```
 
 The NVST input protocol has only a *relative* mouse-move packet (`INPUT_MOUSE_MOVE_REL`, clamped
 at ±4096 per axis) — there is no absolute-position packet that could move the host cursor to an
@@ -258,10 +339,21 @@ a real pixel with no downscale to hide it, which showed as mush in dark, high-mo
 maximum the measured estimate may climb to — the lowering path is untouched, so a weak link
 still ratchets straight back down.
 
-Relevant source: `src/input.rs` (touch-zone geometry, profile-aware routing, stick/button
-mapping), `src/shell/mod.rs` (touch-ownership arbitration), `src/gfn/input_protocol.rs` (mouse
-move/wheel packet encoding), `src/gfn/stream_prefs.rs` (persisted prefs), `src/app/ui.rs`
-(egui overlay rendering and the control manual), `src/gfn/link_estimate.rs` (bitrate ceiling).
+Relevant source — most of it now in `core/`, where it is covered by tests:
+
+| File | What lives there |
+|---|---|
+| `core/src/input/layout.rs` | The zone table, and the hit-test that reads it |
+| `core/src/input/router.rs` | `route_touch()`: whose finger is this, in a written precedence order |
+| `core/src/input/bindings.rs` | What each control means per profile; the on-screen manual is generated from it |
+| `core/src/input/mapper.rs` | Sticks/buttons/touch → events, the modifier latch, the tap/drag thresholds |
+| `core/src/protocol.rs` | NVST wire format: gamepad, keys, mouse move and wheel |
+| `src/input_stream.rs` | Layer 1: SDL events in, `core` values out. The only part that needs SDL |
+| `src/shell/mod.rs` | Main loop: touch ownership, the 120 Hz pad poll, frame pacing |
+| `src/app/ui.rs` | egui rendering of the overlay, the keyboard and the control manual |
+| `src/gfn/stream_prefs.rs` | Persisted preferences, and the `InputConfig` snapshot handed to `core` |
+| `src/gfn/link_estimate.rs` | Remembered link quality → bitrate ceiling |
+
 ## Sign-in routing: avoiding regional partner logins
 
 GeForce NOW's device-code sign-in normally starts by asking NVIDIA's backend which login
@@ -282,7 +374,7 @@ to.
 
 | Phase | Scope | State |
 |---|---|---|
-| 0 | Protocol research (`docs/protocol-notes.md`) | ✅ Done |
+| 0 | Protocol research (notes kept locally; `/docs` is not published) | ✅ Done |
 | 1 | App skeleton: VitaSDK/`cargo-vita` build, SDL2 + egui loop | ✅ Done |
 | 2 | Authentication + game library | ✅ Done |
 | 3 | Signaling + CloudMatch session lifecycle | ✅ Done |
@@ -292,12 +384,22 @@ to.
 | 7 | PC-Touch Overlay Mod (KB+mouse over the stream) | ✅ Implemented; smoke-tested boot/render in Vita3K |
 | 8 | Direct NVIDIA login routing (skip partner discovery) | ✅ Implemented; each CI build re-verified booting in Vita3K |
 | 9 | Control-profile redesign (game vs desktop, eye toggle) | ✅ Implemented in 0.5.0 |
+| 10 | Control rewrite as a tested crate (`opennow-core`, 73 tests) | ✅ 0.6.0 — tests green, boot re-verified in Vita3K |
+| 11 | Toolchain repair: VPK links and the client starts again on the September 2026 VitaSDK image | ✅ 0.6.0 |
+| 12 | Overlay-over-video and session-startup performance work | ⏳ Needs a real session's `frame_stats.log` — see [Troubleshooting](#troubleshooting) |
 
 Development is validated against both [Vita3K](https://vita3k.org/) (whose `sceAvcdec` only
 implements YUV420 output, handled at runtime, and whose `sceNet` stack is stubbed — enough to
 boot and render the UI, but not to complete NVIDIA's OAuth device-code login over a real TCP
 connection) and real PS Vita hardware, which is required to validate networked login and
 streaming end-to-end.
+
+![OpenNOW Vita booting in Vita3K](docs/screenshots/boot-vita3k.png)
+
+That is the whole of what an emulator can confirm — the client boots, renders at the panel's
+native 960×544, and takes pad input. One button press later it asks NVIDIA for a device code and
+Vita3K's stubbed `sceNet` answers `No more processes (os error 11)`. Everything past the login
+screen has to be checked on a console.
 
 See `THIRD_PARTY_NOTICES.md` for what is reused from green-vita (MPL-2.0) and what is protocol
 knowledge referenced from OpenNOW, and `CHANGELOG.md` for the full version history.
@@ -409,6 +511,55 @@ What they cover, and why each one is there:
 The Vita build itself is checked the only way it can be — by building it, locally in the
 container above and in CI on every push.
 
+## Troubleshooting
+
+### Where the client keeps its files
+
+On the console, under `ux0:`. All of these survive a reinstall of the VPK, which is usually what
+you want — and occasionally exactly what you need to delete.
+
+| Path | What it holds |
+|---|---|
+| `ux0:data/opennow/logs/` | The general log, one file per run |
+| `ux0:data/opennow/frame_stats.log` | A frame-time breakdown every 2 s, reset at the start of each session |
+| `ux0:data/opennow-vita/settings.json` | Every preference, including the control profile and overlay state |
+| `ux0:data/opennow-vita/link-bitrate.txt` | The bitrate ceiling learned from past sessions on this network |
+| `ux0:data/opennow-vita/favorites.txt` | Favourited titles |
+| `ux0:data/opennow-vita/gfn-auth.json` | Your encrypted NVIDIA tokens — delete this to sign out completely |
+
+### Running it
+
+| Symptom | What is going on |
+|---|---|
+| **"Device limit reached"**, with nothing else actually running | A session left open on a *different* streaming zone — after a crash, or after playing the same title from a PC. The client now sweeps every zone it knows about before launching; if it still happens, sign in on `play.geforcenow.com` once and close the session there. |
+| **Login never completes in Vita3K**: `tcp connect error: No more processes (os error 11)` | Expected. Vita3K's `sceNet` is a stub, so the device-code call to `login.nvidia.com` cannot be made at all. The emulator can confirm the client boots, renders and reads the pad; nothing past that. |
+| **The client exits instantly, or shows a black screen**, on a build before 0.6.0 built against the September 2026 VitaSDK | SDL picked its new GLES2/vitaGL renderer over the Vita's own GXM one, initialised GXM through vitaGL, then crashed on a context it never got. Fixed in 0.6.0, which pins the renderer; the log line `renderer: VITA gxm` confirms it. |
+| **Sign-in shows a regional partner's branding** instead of NVIDIA's | Settings → Account → **Force direct NVIDIA login** (on by default). See [Sign-in routing](#sign-in-routing-avoiding-regional-partner-logins). |
+| **The cursor moves when you touch the front screen** in the desktop profile | Fixed in 0.6.0. The front trackpad branch used to be evaluated before the desktop-profile branch, so the front screen drove the pointer as well as the rear panel. |
+| **Switching the overlay on kills L2/R2, L3/R3 and half the D-pad** | 0.4.x behaviour — the overlay replaced the gamepad snapshot with a neutral one. Fixed in 0.5.0, and a test (`the_game_profile_forwards_every_control`) now fails if it ever comes back. |
+| **A thumb resting on the top edge fires Escape into the game** | It should not: strip keys fire on finger *lift*, and only after a short, still press. If it happens, the press was being read as a tap — report it with the log. |
+| **The picture is mushy in dark, fast scenes** | The bitrate ceiling is *learned* per network and may be stuck low from a bad session. Delete `link-bitrate.txt` above to re-measure from scratch. |
+| **Stutters, or input that lags behind the picture** | Attach `frame_stats.log` from a session of a few minutes. It breaks each frame into `build_ui` / `tessellate` / `texture_apply` / `geometry` / `present`, which is what phase 12 needs before anything is changed — guessing at this without the numbers is how the 0.5.0 "fixes" happened. |
+
+### Building it
+
+| Error | Fix |
+|---|---|
+| A wall of `undefined reference to std::__throw_length_error` and `sceShaccCgExtEnableExtensions` | SDL2's installed `pkg-config` data does not list what libvitaGL and libvitashark now need. Add `-lSceShaccCgExt -lSceShaccCg_stub -lstdc++ -ltaihen_stub_weak`, in that order. Already in the `Makefile`. |
+| `undefined reference to taiGetModuleInfo` / `taiInjectDataForUser` | `libSceShaccCgExt` hooks the shader compiler through taiHEN. Link `-ltaihen_stub_weak` — the *weak* stub, so module load still succeeds where taiHEN is absent (Vita3K). |
+| `failed to find tool "/work/tools/vita-gcc": No such file or directory`, for a file that is plainly there | A CRLF checkout turned the wrapper's shebang into `/bin/sh\r`. `scripts/docker-build.sh` repairs it; `.gitattributes` prevents it on a fresh clone. |
+| `cargo test` says `can't find crate for 'std'` | `.cargo/config.toml` pins `[build] target` to the Vita, so the test harness is being built for ARM. Pass a host target: `cargo test -p opennow-core --target x86_64-unknown-linux-gnu`. |
+| Every container build takes sixteen minutes | Mount the cargo registry volume — see [Building locally](#building-locally). Without it each `--rm` run re-downloads every crate and cargo rebuilds std. |
+| `cargo vita` ignores the flags in `.cargo/config.toml` | It does not forward config.toml rustflags to rustc. They have to arrive through the environment, which is why the `Makefile` sets `RUSTFLAGS` and is the one place they are written down. |
+| Vita3K's CLI installer dies with *"the process cannot access the file because it is being used by another process"* on `ux0/app/OPENNOWV0` | Its installer `remove_all`s the folder first and races its own app-list cache. A VPK is a plain zip whose contents go straight into `ux0:app/<TITLE_ID>/` — unzip it there over the old copy and run `Vita3K.exe -r OPENNOWV0`. |
+
+### Reporting something
+
+The two things worth attaching, in order: `ux0:data/opennow/logs/` from the run that went wrong,
+and `frame_stats.log` if the complaint is about speed rather than correctness. For a controls
+problem, the stats overlay's input line (`l3 r3 l2 r2`) says what the router actually decided,
+which beats reasoning about it from the source.
+
 ## Continuous integration & releases
 
 `.github/workflows/build.yml` defines two jobs:
@@ -425,8 +576,8 @@ to keep the Vita bubble's `APP_VER` in sync), add a dated section for it at the 
 `CHANGELOG.md`, commit, then push a matching tag:
 
 ```sh
-git tag v0.4.1
-git push origin v0.4.1
+git tag -a v0.6.0 -m "OpenNOW Vita 0.6.0"
+git push origin v0.6.0
 ```
 
 The workflow picks up the tag, builds, and publishes the release automatically — no manual
@@ -465,7 +616,8 @@ src/
   input.rs               Menu-side SDL2 event mapping and the AppCommand enum
   input_stream.rs        Layer 1 of the input stack: SDL events in, opennow-core values out.
                           Every decision it makes comes from `core/` and is covered by a test
-                          there; what is left here is the part that genuinely cannot be
+                          there; what is left here is the part that genuinely cannot be tested
+                          off-console, because it only knows how to read an sdl2::event::Event
   jobs.rs                Background async task plumbing
   power.rs               CPU/GPU clock profile for streaming
   safe_memory.rs          Encrypted token storage in the Vita's Safe Memory
@@ -501,7 +653,8 @@ src/
     link_estimate.rs         Remembered link quality → bitrate ceiling estimation
     queue_stats.rs           Session queue position tracking
     headers.rs               Shared HTTP headers for GFN API calls
-docs/protocol-notes.md   GFN protocol reverse-engineering notes (Phase 0)
+docs/screenshots/        Screenshots used by this README (the rest of /docs is local scratch)
+README.es.md             This README in Spanish
 ```
 
 The assets in `static/sce_sys/` (icon, LiveArea backgrounds) are auto-generated solid-color
