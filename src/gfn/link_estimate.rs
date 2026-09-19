@@ -143,7 +143,7 @@ pub fn record(measured_mbps: u32, stressed: bool) {
         return;
     }
     if let Err(error) = std::fs::write(STORE_PATH, next.to_string()) {
-        eprintln!("Could not persist link estimate: {error}");
+        crate::diag!("Could not persist link estimate: {error}");
     }
 }
 

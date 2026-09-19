@@ -229,7 +229,7 @@ fn read_or_migrate_settings() -> AppSettings {
         match serde_json::from_str::<AppSettings>(&content) {
             Ok(settings) => return settings,
             Err(_) => {
-                eprintln!("settings.json corrupt; recreating with stable defaults");
+                crate::diag!("settings.json corrupt; recreating with stable defaults");
                 let settings = AppSettings::default();
                 save_settings_disk(&settings);
                 return settings;
@@ -626,8 +626,7 @@ pub fn set_rear_touch_mode(mode: RearTouchMode) {
 }
 
 pub fn region() -> String {
-    with_cached_settings(|s| crate::gfn::regions::normalize_base_url(&s.region))
-        .unwrap_or_default()
+    with_cached_settings(|s| crate::gfn::regions::normalize_base_url(&s.region)).unwrap_or_default()
 }
 
 pub fn set_region(base_url: &str) {

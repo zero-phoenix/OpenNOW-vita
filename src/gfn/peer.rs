@@ -353,11 +353,8 @@ async fn run_peer(
 
     let sanitized_offer = crate::gfn::sdp::sanitize_offer(&setup.offer_sdp, &setup.server_ip);
     let ri_caps = crate::gfn::sdp::parse_ri_input_capabilities(&setup.offer_sdp);
-    let _ = std::fs::write("ux0:data/opennow-vita/offer-raw.sdp", &setup.offer_sdp);
-    let _ = std::fs::write(
-        "ux0:data/opennow-vita/offer-sanitized.sdp",
-        &sanitized_offer,
-    );
+    // SDP carries ICE credentials, candidates and negotiated endpoint details. Never persist it:
+    // a diagnostic report records only derived, non-secret capabilities below.
     let video_payload_types = crate::gfn::sdp::h264_payload_types(&sanitized_offer);
     let audio_payload_types = crate::gfn::sdp::opus_payload_types(&sanitized_offer);
 
@@ -422,21 +419,13 @@ async fn run_peer(
         .context("failed to apply NVIDIA offer")?;
     if let Some(media) = &setup.media_host {
         if !media.is_webrtc_ice_host_port() {
-            log_stream!(
-                "mediaConnectionInfo ICE skipped: {}:{} is signaling/control, not RTP",
-                media.ip,
-                media.port
-            );
+            log_stream!("mediaConnectionInfo ICE skipped: signaling/control endpoint");
         } else {
             let ice_ip = crate::gfn::sdp::extract_public_ip(&media.ip)
                 .or_else(|| crate::gfn::sdp::extract_public_ip(&setup.server_ip));
             match ice_ip {
                 Some(ip) => {
-                    log_stream!(
-                        "injecting mediaConnectionInfo ICE {ip}:{} (from {}, remote ufrag={remote_ufrag})",
-                        media.port,
-                        media.ip
-                    );
+                    log_stream!("injecting mediaConnectionInfo ICE host candidate");
                     if let Err(error) =
                         pc.add_remote_candidate(remote_host_ice(&ip, media.port, &remote_ufrag))
                     {
@@ -444,10 +433,7 @@ async fn run_peer(
                     }
                 }
                 None => {
-                    log_stream!(
-                        "mediaConnectionInfo ICE skipped: {} is not a dotted IPv4 or Alliance host",
-                        media.ip
-                    );
+                    log_stream!("mediaConnectionInfo ICE skipped: unsupported endpoint");
                 }
             }
         }
@@ -520,10 +506,8 @@ async fn run_peer(
         crate::gfn::sdp::munge_answer_sdp(&answer.sdp, stream_settings.max_bitrate_mbps * 1000);
     let mut saved_answer_sdp = munged_answer_sdp.clone();
     let answer_sdp = answer.sdp.clone();
-    let _ = std::fs::write("ux0:data/opennow-vita/answer.sdp", &saved_answer_sdp);
     let nvst_sdp =
         crate::gfn::sdp::build_nvst_sdp_from_answer(&answer_sdp, &stream_settings, &ri_caps);
-    let _ = std::fs::write("ux0:data/opennow-vita/nvst.sdp", &nvst_sdp);
     log_stream!(
         "session profile {}x{} @ {}fps ref_frames={} bitrate_ceiling={}Mbps peer_loop=reorder_grace_drain decoder=avcdec_auto present=latest",
         stream_settings.dimensions().0,

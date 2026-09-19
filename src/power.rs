@@ -41,7 +41,7 @@ impl PerformanceMode {
             gpu: unsafe { vitasdk_sys::scePowerGetGpuClockFrequency() },
             gpu_xbar: unsafe { vitasdk_sys::scePowerGetGpuXbarClockFrequency() },
         });
-        eprintln!("Clocks before: {restore:?}");
+        crate::diag!("Clocks before: {restore:?}");
 
         set_clocks(Clocks {
             arm: PERFORMANCE_ARM_MHZ,
@@ -52,7 +52,7 @@ impl PerformanceMode {
 
         let result = unsafe { vitasdk_sys::scePowerSetUsingWireless(1) };
         if result < 0 {
-            eprintln!("scePowerSetUsingWireless failed: {result:#x}");
+            crate::diag!("scePowerSetUsingWireless failed: {result:#x}");
         }
 
         Self { restore }
@@ -162,7 +162,7 @@ fn set_clocks(clocks: Clocks) {
     let apply = |name: &str, mhz: i32, setter: unsafe extern "C" fn(i32) -> i32| {
         let result = unsafe { setter(mhz) };
         if result < 0 {
-            eprintln!("{name}({mhz}) failed: {result:#x}");
+            crate::diag!("{name}({mhz}) failed: {result:#x}");
         }
     };
     apply(

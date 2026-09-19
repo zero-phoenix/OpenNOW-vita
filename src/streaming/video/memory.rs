@@ -38,10 +38,10 @@ pub fn reserve_decoder_cdram() {
         };
         if uid >= 0 {
             RESERVED_CDRAM.store(uid, Ordering::Relaxed);
-            eprintln!("Reserved {size} bytes of CDRAM for AVCDEC");
+            crate::diag!("Reserved {size} bytes of CDRAM for AVCDEC");
             return;
         }
-        eprintln!(
+        crate::diag!(
             "Failed to reserve {size} bytes of CDRAM for AVCDEC: {uid:#x}; {}",
             free_memory_summary(),
         );

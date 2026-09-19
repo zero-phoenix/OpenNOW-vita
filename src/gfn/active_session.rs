@@ -20,7 +20,7 @@ pub fn remember(session_id: &str, streaming_base_url: &str) {
     // tab separated, urls dont have whitespace and session ids are uuids so no ambiguity
     let line = format!("{session_id}\t{streaming_base_url}");
     if let Err(error) = std::fs::write(STORE_PATH, line) {
-        eprintln!("Could not record the active CloudMatch session: {error}");
+        crate::diag!("Could not record the active CloudMatch session: {error}");
     }
 }
 

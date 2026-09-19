@@ -628,7 +628,7 @@ pub async fn resolve_vpc_id(client: &Client, token: &str, cache: &VpcIdCache) ->
             return Err(error.context("serverInfo VPC id lookup was not authorized"));
         }
         Err(error) => {
-            eprintln!(
+            crate::diag!(
                 "serverInfo VPC id lookup failed, falling back to {FALLBACK_VPC_ID}: {error:#}"
             );
             Ok(FALLBACK_VPC_ID.to_owned())

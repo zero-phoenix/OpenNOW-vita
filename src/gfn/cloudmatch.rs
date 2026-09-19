@@ -449,7 +449,7 @@ pub async fn create_session(
                         return Err(payload
                             .request_status
                             .to_error(format!(
-                                "CloudMatch create session error {} ({}): {body_text}",
+                                "CloudMatch create session error {} ({})",
                                 payload.request_status.status_code,
                                 payload.request_status.describe()
                             ))
@@ -480,7 +480,7 @@ pub async fn create_session(
                             return Err(limit_payload
                                 .request_status
                                 .to_error(format!(
-                                    "CloudMatch create session error {} ({}): {body_text}",
+                                    "CloudMatch create session error {} ({})",
                                     limit_payload.request_status.status_code,
                                     limit_payload.request_status.describe()
                                 ))
@@ -506,7 +506,7 @@ pub async fn create_session(
                         continue;
                     }
 
-                    bail!("HTTP {status}: {body_text}");
+                    bail!("HTTP {status}; response body withheld");
                 }
                 Err(err) => {
                     last_err = Some(err);
@@ -649,7 +649,7 @@ pub async fn poll_session(
                 .ok()
                 .map(|payload| {
                     payload.request_status.to_error(format!(
-                        "CloudMatch poll attempt {attempt} rejected: {}: {body_text}",
+                        "CloudMatch poll attempt {attempt} rejected: {}",
                         describe_status(status, &body_text)
                     ))
                 })
@@ -677,7 +677,7 @@ pub async fn poll_session(
                                 GfnErrorCode::from_http_status(status.as_u16())
                                     .unwrap_or(GfnErrorCode::SERVER_INTERNAL_ERROR),
                                 format!(
-                                    "CloudMatch poll attempt {attempt} rejected: {}: {body_text}",
+                                    "CloudMatch poll attempt {attempt} rejected: {}",
                                     describe_status(status, &body_text)
                                 ),
                             )
@@ -710,7 +710,7 @@ pub async fn poll_session(
             return Err(payload
                 .request_status
                 .to_error(format!(
-                    "CloudMatch poll error: {} ({}): {body_text}",
+                    "CloudMatch poll error: {} ({})",
                     payload.request_status.status_code,
                     payload.request_status.describe()
                 ))
@@ -994,7 +994,7 @@ pub async fn get_active_sessions(
             Err(error) => {
                 // One zone flaking must not hide live sessions on the others — that is the
                 // orphan-session case this cleanup exists to prevent.
-                log_warn!("Could not list CloudMatch sessions on {base_url}: {error}");
+                log_warn!("Could not list CloudMatch sessions: {error}");
                 continue;
             }
         };
@@ -1002,9 +1002,7 @@ pub async fn get_active_sessions(
         let payload: GetSessionsResponse = match serde_json::from_str(&body_text) {
             Ok(payload) => payload,
             Err(error) => {
-                log_warn!(
-                    "Could not read CloudMatch active sessions from {base_url}: {error}: {body_text}"
-                );
+                log_warn!("Could not read CloudMatch active sessions: {error}");
                 continue;
             }
         };

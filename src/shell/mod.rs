@@ -11,9 +11,9 @@ use crate::input::{
     map_controller_button_event, map_keyboard_event, map_pointer_event, open_first_controller,
     read_pad, register_vita_controller_mapping,
 };
-use opennow_core::input::OutputEvent;
 use crate::streaming::audio::AudioRenderer;
 use anyhow::{Context, Result};
+use opennow_core::input::OutputEvent;
 use std::time::{Duration, Instant};
 use surface::{FramePaintStats, HEIGHT, VitaSurface, WIDTH};
 
@@ -24,9 +24,9 @@ const DIRECTION_REPEAT_INTERVAL: Duration = Duration::from_millis(70);
 
 pub(crate) const TARGET_FRAME_TIME: Duration = Duration::from_millis(16);
 
-/// How often the pad is sampled, independent of the frame rate. 8 ms is 120 Hz: twice the render
-/// rate, so the average wait between pressing a button and the packet leaving drops from ~8 ms to
-/// ~4 ms, and a slow frame no longer drags the controller with it.
+/// Minimum interval between pad samples. This remains render-loop bounded: it avoids duplicate
+/// reads on fast frames, but it is not a dedicated 120 Hz input thread and must not be described
+/// as one until sampling is moved off the render path.
 const PAD_POLL_INTERVAL: Duration = Duration::from_millis(8);
 
 const FRAME_STATS_INTERVAL: Duration = Duration::from_secs(2);
@@ -233,8 +233,27 @@ pub async fn run(mut app: App) -> Result<()> {
     let mut frame_stats = FrameStats::default();
     crate::logger::reset_frame_stats_log();
     crate::logger::write_frame_stats("=== OpenNOW-vita frame stats — new session ===");
+    let report_writer = crate::reports::ReportWriter::new();
+    // Two rendered frames after the click let the overlay collapse before framebuffer capture.
+    let mut report_capture_after_frames: Option<u8> = None;
 
     loop {
+        if let Some(message) = report_writer.try_result() {
+            app.status_note = Some(message);
+        }
+        if let Some(remaining) = report_capture_after_frames {
+            if remaining == 0 {
+                report_capture_after_frames = None;
+                match report_writer.capture_now() {
+                    Ok(()) => app.status_note = Some("Writing local diagnostic report…".to_owned()),
+                    Err(error) => {
+                        app.status_note = Some(format!("Diagnostic report unavailable: {error}"))
+                    }
+                }
+            } else {
+                report_capture_after_frames = Some(remaining - 1);
+            }
+        }
         let loop_started_at = Instant::now();
         frame_stats.note_iteration();
         frame_stats.maybe_flush();
@@ -291,9 +310,7 @@ pub async fn run(mut app: App) -> Result<()> {
                 for output in stream_input.handle_event(&event, config, stream_size, &claims) {
                     match output {
                         OutputEvent::Mouse(mouse) => stream_mouse_events.push(mouse),
-                        OutputEvent::Key { key, pressed } => {
-                            stream_key_events.push((key, pressed))
-                        }
+                        OutputEvent::Key { key, pressed } => stream_key_events.push((key, pressed)),
                         other => {
                             if let Some(command) = crate::input_stream::app_command_for(other)
                                 && !direct_commands.contains(&command)
@@ -366,12 +383,8 @@ pub async fn run(mut app: App) -> Result<()> {
             None => held_direction = None,
         }
 
-        // Pad polling, on its own clock rather than once per rendered frame.
-        //
-        // This is the latency fix. Sampling the pad inside the render loop meant a frame that took
-        // 30 ms also delayed the controller by 30 ms - so a render hiccup and input lag were the
-        // same event. Polling on elapsed time instead decouples them: the picture can stutter
-        // while the character still answers.
+        // Pad polling is rate-limited inside the render loop. It cannot run while rendering is
+        // stalled; a dedicated input task would be required for true independent 120 Hz polling.
         let pad = controller.as_ref().map(read_pad).unwrap_or_default();
         let now = Instant::now();
         if now.duration_since(last_pad_poll) >= PAD_POLL_INTERVAL {
@@ -392,8 +405,8 @@ pub async fn run(mut app: App) -> Result<()> {
         }
         // Switching profiles or ending a session must not leave the host holding a button or a
         // modifier. `release_all` is the one place that guarantees it.
-        let desktop_profile_active = matches!(app.state, AppState::Streaming { .. })
-            && config.desktop_active();
+        let desktop_profile_active =
+            matches!(app.state, AppState::Streaming { .. }) && config.desktop_active();
         if desktop_profile_active != was_desktop_profile {
             was_desktop_profile = desktop_profile_active;
             for output in stream_input.release_all() {
@@ -407,6 +420,9 @@ pub async fn run(mut app: App) -> Result<()> {
 
         for command in direct_commands {
             app.handle_command(command).await?;
+        }
+        if app.take_diagnostic_capture_request() {
+            report_capture_after_frames = Some(2);
         }
         let tick_started_at = Instant::now();
         app.tick().await?;
@@ -540,6 +556,9 @@ pub async fn run(mut app: App) -> Result<()> {
                 });
             }
             app.handle_command(command).await?;
+        }
+        if app.take_diagnostic_capture_request() {
+            report_capture_after_frames = Some(2);
         }
 
         let tessellate_started_at = Instant::now();

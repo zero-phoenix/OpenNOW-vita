@@ -10,6 +10,7 @@
 # after the libraries that ask for them.
 RUSTFLAGS ?= -C target-feature=-neon -C link-arg=-lSceShaccCgExt -C link-arg=-lSceShaccCg_stub -C link-arg=-lstdc++ -C link-arg=-ltaihen_stub_weak
 CARGO_VITA ?= cargo +nightly vita
+
 VPK := target/armv7-sony-vita-newlibeabihf/release/opennow-vita.vpk
 VITA_UPLOAD_DIR ?= ux0:/data/
 DESKTOP_DIR ?= $(HOME)/Desktop

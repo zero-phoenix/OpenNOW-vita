@@ -1,4 +1,3 @@
-
 use crate::streaming::video::VideoDecodeWorker;
 use h264_reader::annexb::AnnexBReader;
 use h264_reader::nal::sps::SeqParameterSet;
@@ -181,10 +180,7 @@ impl PendingVideoFrame {
         }
         if order.windows(2).any(|pair| {
             self.packets[pair[1]].header.sequence_number
-                != self.packets[pair[0]]
-                    .header
-                    .sequence_number
-                    .wrapping_add(1)
+                != self.packets[pair[0]].header.sequence_number.wrapping_add(1)
         }) {
             return FrameAssembly::Pending;
         }
@@ -250,9 +246,10 @@ impl VideoRtp {
     }
 
     pub fn reorder_deadline_us(&self) -> Option<u64> {
-        self.reorder_hold
-            .as_ref()
-            .map(|_| self.reorder_hold_started_at_us.saturating_add(self.reorder_hold_grace_us))
+        self.reorder_hold.as_ref().map(|_| {
+            self.reorder_hold_started_at_us
+                .saturating_add(self.reorder_hold_grace_us)
+        })
     }
 
     pub fn receive(
@@ -273,7 +270,9 @@ impl VideoRtp {
         arrival_us: u64,
     ) -> VideoSampleStats {
         let mut stats = VideoSampleStats::default();
-        stats.jitter_ms = self.jitter_estimator.update(arrival_us, packet.header.timestamp);
+        stats.jitter_ms = self
+            .jitter_estimator
+            .update(arrival_us, packet.header.timestamp);
         self.expire_reorder_grace(sink, keyframe_requested, arrival_us, &mut stats);
 
         if packet.payload.is_empty() {
@@ -312,7 +311,8 @@ impl VideoRtp {
                 return stats;
             }
             if self.reorder_hold.is_some() {
-                self.reorder_hold_started_at_us = arrival_us.saturating_sub(self.reorder_hold_grace_us);
+                self.reorder_hold_started_at_us =
+                    arrival_us.saturating_sub(self.reorder_hold_grace_us);
                 self.expire_reorder_grace(sink, keyframe_requested, arrival_us, &mut stats);
             } else if let Some(ready) = self.parked_au.take() {
                 self.process_assembled(ready, sink, keyframe_requested, &mut stats);
@@ -506,13 +506,15 @@ impl VideoRtp {
 
         let unit = inspect_h264_access_unit(&data);
         stats.encoded_resolution = unit.resolution;
-        let sample_too_large = unit
-            .resolution
-            .is_some_and(|(width, height)| width > self.decode_width || height > self.decode_height);
+        let sample_too_large = unit.resolution.is_some_and(|(width, height)| {
+            width > self.decode_width || height > self.decode_height
+        });
         if sample_too_large {
-            eprintln!(
+            crate::diag!(
                 "Dropping H264 access unit larger than decoder: {:?} > {}x{}",
-                unit.resolution, self.decode_width, self.decode_height
+                unit.resolution,
+                self.decode_width,
+                self.decode_height
             );
             self.stream_too_large = true;
             *keyframe_requested = true;

@@ -3,21 +3,15 @@
 use anyhow::{Result, bail};
 use reqwest::Response;
 
-/// `Response::error_for_status()` discards the response body, which for GraphQL/REST error
-/// responses is usually where the actually-useful message lives (e.g.
+/// Keep the HTTP status without retaining an arbitrary provider response body. Those bodies may
+/// contain session identifiers, tokens or account data and must not flow into diagnostic logs.
 pub async fn error_for_status_with_body(response: Response) -> Result<Response> {
     let status = response.status();
     if status.is_success() {
         return Ok(response);
     }
-    let body = response
-        .text()
-        .await
-        .unwrap_or_else(|error| format!("<failed to read response body: {error}>"));
-    bail!(
-        "HTTP {status}: {}",
-        body.chars().take(500).collect::<String>()
-    );
+    let bytes = response.content_length().unwrap_or(0);
+    bail!("HTTP {status}; response body withheld ({bytes} bytes declared)");
 }
 
 pub const CLIENT_ID: &str = "ec7e38d4-03af-4b58-b131-cfb0495903ab";

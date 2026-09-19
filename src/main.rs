@@ -1,14 +1,16 @@
 use vita_newlib_shims as _;
 
-mod i18n;
-mod locale;
-mod power;
 mod app;
+mod diag;
 mod gfn;
+mod i18n;
 mod input;
 mod input_stream;
 mod jobs;
+mod locale;
 mod logger;
+mod power;
+mod reports;
 mod safe_memory;
 mod shell;
 mod streaming;
@@ -33,6 +35,7 @@ fn main() -> anyhow::Result<()> {
         eprintln!("Failed to initialize logger: {e}");
     }
     log_info!("OpenNOW-vita starting up");
+    diag::startup_report();
 
     let _performance = power::PerformanceMode::engage();
     thread_affinity::pin_current_thread(thread_affinity::VitaCore::Render, "shell");

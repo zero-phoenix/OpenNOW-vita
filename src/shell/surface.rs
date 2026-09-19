@@ -75,7 +75,7 @@ impl VitaSurface {
             .map(|index| index as u32);
         if gxm_driver_index.is_none() {
             let names: Vec<&str> = sdl2::render::drivers().map(|driver| driver.name).collect();
-            eprintln!(
+            crate::diag!(
                 "no '{GXM_RENDER_DRIVER}' render driver in this SDL2 build (has: {names:?}); \
                  falling back to SDL's own choice"
             );
@@ -94,15 +94,40 @@ impl VitaSurface {
             .build()
             .map_err(anyhow::Error::msg)
             .context("failed to create SDL Vita renderer")?;
+        // Alpha has to be told to blend. SDL takes the blend mode for a `SDL_RenderGeometry` call
+        // from the bound texture when there is one, and from the *renderer* when there is not
+        // (SDL_render.c, PrepQueueCmdDraw) - and `SDL_CreateRenderer` leaves the renderer on
+        // SDL_BLENDMODE_NONE. The painter sets Blend on every texture it creates, so text and
+        // icons were always fine; everything untextured - every `rect_filled`, every stroke, every
+        // shadow, every anti-aliasing feather egui emits - was writing its alpha into the
+        // framebuffer instead of blending with it.
+        //
+        // Through 0.4.x that barely showed: the interface was opaque panels on a black background,
+        // where "alpha ignored" and "alpha honoured" look almost the same. 0.6.0 moved the whole
+        // control surface onto translucent overlays composited over live video, which is exactly
+        // the case where it does not look the same at all - the opacity setting stops meaning
+        // anything, the auto-fade only changes the colour of a solid slab, and every rounded
+        // corner grows a hard fringe.
+        canvas.set_blend_mode(sdl2::render::BlendMode::Blend);
+
         let active_driver = canvas.info().name;
         if active_driver == GXM_RENDER_DRIVER {
-            eprintln!("renderer: {active_driver}");
+            crate::diag!("renderer: {active_driver}");
         } else {
-            eprintln!(
+            crate::diag!(
                 "renderer: {active_driver} (expected {GXM_RENDER_DRIVER}) - video is going through \
                  GL, which is slower and needs libshacccg.suprx"
             );
         }
+        let info = canvas.info();
+        crate::diag!(
+            "renderer limits: max_texture={}x{} flags={:#x} formats={} | {}",
+            info.max_texture_width,
+            info.max_texture_height,
+            info.flags,
+            info.texture_formats.len(),
+            crate::diag::free_memory(),
+        );
         canvas
             .set_logical_size(WIDTH, HEIGHT)
             .map_err(anyhow::Error::msg)
@@ -184,15 +209,16 @@ impl VitaSurface {
         let (width, height) = (output.width, output.height);
         let force_iyuv = self.force_iyuv;
         let mut format = VideoPixelFormat::Bgr565;
-        let create_targets = |pixel_format: PixelFormatEnum| -> Result<[Texture; VIDEO_TEXTURE_COUNT]> {
-            let create_one = || {
-                self.canvas
-                    .create_texture_streaming(pixel_format, width, height)
-                    .map_err(anyhow::Error::msg)
-                    .with_context(|| format!("failed to create {pixel_format:?} video texture"))
+        let create_targets =
+            |pixel_format: PixelFormatEnum| -> Result<[Texture; VIDEO_TEXTURE_COUNT]> {
+                let create_one = || {
+                    self.canvas
+                        .create_texture_streaming(pixel_format, width, height)
+                        .map_err(anyhow::Error::msg)
+                        .with_context(|| format!("failed to create {pixel_format:?} video texture"))
+                };
+                Ok([create_one()?, create_one()?, create_one()?])
             };
-            Ok([create_one()?, create_one()?, create_one()?])
-        };
         let want_32_bit = crate::gfn::stream_prefs::color_depth()
             == crate::gfn::stream_prefs::ColorDepth::ThirtyTwoBit;
         let mut textures = if force_iyuv {
@@ -203,7 +229,7 @@ impl VitaSurface {
                 .then(|| create_targets(PixelFormatEnum::ABGR8888))
                 .transpose()
                 .unwrap_or_else(|error| {
-                    eprintln!("ABGR8888 video textures unavailable ({error:#}); using BGR565");
+                    crate::diag!("ABGR8888 video textures unavailable ({error:#}); using BGR565");
                     None
                 });
             match thirty_two {
@@ -214,7 +240,7 @@ impl VitaSurface {
                 None => match create_targets(PixelFormatEnum::BGR565) {
                     Ok(textures) => textures,
                     Err(error) => {
-                        eprintln!("BGR565 video textures unavailable ({error:#}); using IYUV");
+                        crate::diag!("BGR565 video textures unavailable ({error:#}); using IYUV");
                         format = VideoPixelFormat::Iyuv;
                         create_targets(PixelFormatEnum::IYUV)?
                     }
@@ -248,7 +274,7 @@ impl VitaSurface {
             && format == VideoPixelFormat::Iyuv
             && targets.iter().any(|target| target.pitch != width)
         {
-            eprintln!(
+            crate::diag!(
                 "IYUV texture pitch {} != width {width}; using BGR565",
                 targets[0].pitch
             );

@@ -45,7 +45,11 @@ impl TitleImage {
     }
 
     /// Lazily uploads the RGBA to the egui context.
-    pub fn texture(&self, ctx: &egui::Context, key: impl FnOnce() -> String) -> &egui::TextureHandle {
+    pub fn texture(
+        &self,
+        ctx: &egui::Context,
+        key: impl FnOnce() -> String,
+    ) -> &egui::TextureHandle {
         self.texture.get_or_init(|| {
             ctx.load_texture(
                 key(),
@@ -90,13 +94,10 @@ impl CoverCache {
         let is_ready = matches!(state, CoverState::Ready(_));
         self.next_generation += 1;
         let generation = self.next_generation;
-        if let Some(previous) = self.entries.insert(
-            app_id,
-            CoverEntry {
-                state,
-                generation,
-            },
-        ) {
+        if let Some(previous) = self
+            .entries
+            .insert(app_id, CoverEntry { state, generation })
+        {
             if matches!(previous.state, CoverState::Ready(_)) {
                 self.ready_count -= 1;
             }
@@ -253,7 +254,7 @@ impl CoverStore {
             let _permit = match permits.acquire_owned().await {
                 Ok(permit) => permit,
                 Err(error) => {
-                    eprintln!("Cover semaphore closed for {app_id}: {error}");
+                    crate::diag!("Cover semaphore closed for {app_id}: {error}");
                     let mut inner = match cache.lock() {
                         Ok(guard) => guard,
                         Err(poisoned) => poisoned.into_inner(),
@@ -263,8 +264,7 @@ impl CoverStore {
                 }
             };
 
-            let outcome =
-                fetch_and_decode(&http_client, &app_id, &url, size.max_dimension()).await;
+            let outcome = fetch_and_decode(&http_client, &app_id, &url, size.max_dimension()).await;
             let mut inner = match cache.lock() {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
@@ -277,7 +277,7 @@ impl CoverStore {
                     inner.evict_to(Some(&app_id), size.cache_capacity());
                 }
                 Err(error) => {
-                    eprintln!("Cover fetch for {app_id} failed: {error:#}");
+                    crate::diag!("Cover fetch for {app_id} failed: {error:#}");
                     inner.insert(app_id, CoverState::Failed { at: Instant::now() });
                 }
             }
@@ -371,8 +371,10 @@ async fn fetch_and_decode(
                 Ok(Ok(image)) => return Ok(image),
                 // A truncated or corrupt file should cost one re-download, not a permanent
                 // failure, so fall through to the network and let the write below replace it.
-                Ok(Err(error)) => eprintln!("Discarding unreadable cached cover {app_id}: {error}"),
-                Err(error) => eprintln!("Cached cover decode task panicked: {error}"),
+                Ok(Err(error)) => {
+                    crate::diag!("Discarding unreadable cached cover {app_id}: {error}")
+                }
+                Err(error) => crate::diag!("Cached cover decode task panicked: {error}"),
             }
         }
     }
@@ -397,7 +399,7 @@ async fn fetch_and_decode(
             if let Err(error) = std::fs::create_dir_all(COVER_DISK_CACHE_DIR)
                 .and_then(|()| std::fs::write(&path, &bytes))
             {
-                eprintln!("Could not cache cover to {}: {error}", path.display());
+                crate::diag!("Could not cache cover to {}: {error}", path.display());
             }
         });
     }

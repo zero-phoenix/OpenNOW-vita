@@ -59,7 +59,7 @@ pub fn pin_current_thread(core: VitaCore, label: &str) {
     let result =
         unsafe { vitasdk_sys::sceKernelChangeThreadCpuAffinityMask(thread_id, mask as i32) };
     if result < 0 {
-        eprintln!("Failed to pin {label} thread to {core:?} (mask {mask:#x}): {result:#x}");
+        crate::diag!("Failed to pin {label} thread to {core:?} (mask {mask:#x}): {result:#x}");
     }
 }
 

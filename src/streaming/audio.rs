@@ -10,8 +10,8 @@ use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use std::collections::VecDeque;
 use std::ptr::NonNull;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
@@ -200,7 +200,8 @@ fn red_primary(data: &[u8], payload_type: u8) -> Option<&[u8]> {
         if header + 4 > data.len() {
             return None;
         }
-        redundant_bytes += usize::from(data[header + 2] & 0x03) << 8 | usize::from(data[header + 3]);
+        redundant_bytes +=
+            usize::from(data[header + 2] & 0x03) << 8 | usize::from(data[header + 3]);
         header += 4;
     }
     if header >= data.len() {
@@ -314,13 +315,15 @@ impl JitterBuffer {
         }
 
         // Already played past this one - decoding it now would put it out of order.
-        if self.have_expected
-            && (packet.sequence.wrapping_sub(self.expected_sequence) as i16) < 0
-        {
+        if self.have_expected && (packet.sequence.wrapping_sub(self.expected_sequence) as i16) < 0 {
             self.late_drops += 1;
             return;
         }
-        if self.packets.iter().any(|held| held.sequence == packet.sequence) {
+        if self
+            .packets
+            .iter()
+            .any(|held| held.sequence == packet.sequence)
+        {
             return;
         }
         if self.packets.len() >= MAX_JITTER_PACKETS {
@@ -458,11 +461,10 @@ impl GainStage {
             *sample = amplified.clamp(-32_768.0, 32_767.0) as i16;
         }
 
-        self.fade_frames = (self.fade_frames + (pcm.len() / AUDIO_CHANNELS) as u32)
-            .min(FADE_TOTAL_FRAMES);
+        self.fade_frames =
+            (self.fade_frames + (pcm.len() / AUDIO_CHANNELS) as u32).min(FADE_TOTAL_FRAMES);
     }
 }
-
 
 /// Live audio counters, for the on-screen readout.
 ///
@@ -535,7 +537,6 @@ pub fn stats_line() -> String {
     )
 }
 
-
 /// The live decode worker's inbox, published so the peer thread can hand packets straight over.
 ///
 /// Audio used to reach the worker via the render loop: the peer parked packets in a `Vec` and the
@@ -603,21 +604,18 @@ impl AudioDevice {
         // SAFETY: both specs are valid for the duration of the call, and the audio subsystem is
         // already initialized by the caller.
         let id = unsafe {
-            sdl2::sys::SDL_OpenAudioDevice(
-                std::ptr::null(),
-                0,
-                &desired,
-                &mut obtained,
-                0,
-            )
+            sdl2::sys::SDL_OpenAudioDevice(std::ptr::null(), 0, &desired, &mut obtained, 0)
         };
         if id == 0 {
             bail!("SDL could not open an audio device");
         }
         if obtained.freq != AUDIO_SAMPLE_RATE || obtained.channels != AUDIO_CHANNELS as u8 {
-            eprintln!(
+            crate::diag!(
                 "SDL audio opened as {} Hz / {} channel(s), requested {} Hz / {} channel(s)",
-                obtained.freq, obtained.channels, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS
+                obtained.freq,
+                obtained.channels,
+                AUDIO_SAMPLE_RATE,
+                AUDIO_CHANNELS
             );
         }
         Ok(Self { id })
@@ -639,7 +637,7 @@ impl AudioDevice {
             )
         };
         if result != 0 {
-            eprintln!("Failed to queue SDL audio");
+            crate::diag!("Failed to queue SDL audio");
         }
     }
 
@@ -756,7 +754,7 @@ fn spawn_decode_worker(device: AudioDevice) -> Result<SyncSender<AudioPacket>> {
                                 Some(primary) => match decoder.decode(primary, &mut decode_buf) {
                                     Ok(samples) => samples,
                                     Err(error) => {
-                                        eprintln!("Failed to decode Opus audio packet: {error}; resetting decoder");
+                                        crate::diag!("Failed to decode Opus audio packet: {error}; resetting decoder");
                                         STATS.decode_errors.fetch_add(1, Ordering::Relaxed);
                                         if let Ok(new_decoder) = NativeOpusDecoder::new() {
                                             decoder = new_decoder;
@@ -770,7 +768,7 @@ fn spawn_decode_worker(device: AudioDevice) -> Result<SyncSender<AudioPacket>> {
                         Release::Conceal => match decoder.conceal(&mut decode_buf) {
                             Ok(samples) => samples,
                             Err(error) => {
-                                eprintln!("Opus concealment failed: {error}");
+                                crate::diag!("Opus concealment failed: {error}");
                                 0
                             }
                         },
@@ -947,7 +945,11 @@ mod tests {
         buffer.push(packet(3, &[3], 111));
         buffer.hold_until = None;
 
-        assert_eq!(release_type(buffer.next()), Some(111), "plain Opus stayed plain");
+        assert_eq!(
+            release_type(buffer.next()),
+            Some(111),
+            "plain Opus stayed plain"
+        );
         assert_eq!(
             release_type(buffer.next()),
             Some(RED_PAYLOAD_TYPE),

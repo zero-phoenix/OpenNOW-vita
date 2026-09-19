@@ -549,10 +549,10 @@ pub async fn refresh_tokens(
             Ok(refreshed) => return Ok(refreshed),
             Err(RefreshError::ReauthenticationRequired(message)) => {
                 // The client token is dead, but the OAuth refresh token may well not be.
-                eprintln!("Client-token refresh rejected ({message}); trying OAuth refresh");
+                crate::diag!("Client-token refresh rejected ({message}); trying OAuth refresh");
             }
             Err(RefreshError::Temporary(error)) => {
-                eprintln!("Client-token refresh failed ({error:#}); trying OAuth refresh");
+                crate::diag!("Client-token refresh failed ({error:#}); trying OAuth refresh");
             }
         }
     }
@@ -582,7 +582,7 @@ pub async fn ensure_fresh_tokens(
     }
     if let Err(error) = save_tokens(&refreshed) {
         // Losing the write is survivable - the tokens in memory are still good for this session.
-        eprintln!("Could not persist refreshed GFN tokens: {error:#}");
+        crate::diag!("Could not persist refreshed GFN tokens: {error:#}");
     }
     Ok(refreshed)
 }

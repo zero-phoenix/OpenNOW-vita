@@ -66,7 +66,7 @@ pub fn load() -> Vec<FavoriteGame> {
         .filter_map(|line| match serde_json::from_str::<FavoriteGame>(line) {
             Ok(favorite) => Some(favorite),
             Err(error) => {
-                eprintln!("Skipping unreadable favorite: {error}");
+                crate::diag!("Skipping unreadable favorite: {error}");
                 None
             }
         })
@@ -83,7 +83,7 @@ fn save(favorites: &[FavoriteGame]) {
         .collect::<Vec<_>>()
         .join("\n");
     if let Err(error) = std::fs::write(STORE_PATH, contents) {
-        eprintln!("Could not persist favorites: {error}");
+        crate::diag!("Could not persist favorites: {error}");
     }
 }
 

@@ -1,4 +1,3 @@
-
 use anyhow::Result;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect;
@@ -89,7 +88,12 @@ impl SdlEguiPainter {
             let same_batch =
                 current_clip == Some(clip_rect) && current_texture_id == Some(mesh.texture_id);
             if !same_batch {
-                self.flush_batch(canvas, current_texture_id, &mut draw_calls, &mut vertices_drawn);
+                self.flush_batch(
+                    canvas,
+                    current_texture_id,
+                    &mut draw_calls,
+                    &mut vertices_drawn,
+                );
                 canvas.set_clip_rect(clip_rect);
                 current_clip = Some(clip_rect);
                 current_texture_id = Some(mesh.texture_id);
@@ -103,7 +107,12 @@ impl SdlEguiPainter {
             self.indices
                 .extend(mesh.indices.iter().map(|&i| (base_index + i) as i32));
         }
-        self.flush_batch(canvas, current_texture_id, &mut draw_calls, &mut vertices_drawn);
+        self.flush_batch(
+            canvas,
+            current_texture_id,
+            &mut draw_calls,
+            &mut vertices_drawn,
+        );
         let geometry_secs = geometry_started_at.elapsed().as_secs_f64();
 
         canvas.set_clip_rect(None);
@@ -155,7 +164,7 @@ impl SdlEguiPainter {
             .and_then(|id| self.textures.get(&id))
             .map(|t| &t.texture);
         if let Err(err) = canvas.render_geometry(&self.vertices, texture_ref, &self.indices) {
-            eprintln!("skipped a draw call: {err}");
+            crate::diag!("skipped a draw call: {err}");
         } else {
             *draw_calls += 1;
             *vertices_drawn += self.vertices.len() as u32;
@@ -181,12 +190,7 @@ impl SdlEguiPainter {
         let mut uploaded = 0u32;
         let mut new_creations = 0usize;
 
-        if let Some(font_id) = self
-            .pending
-            .keys()
-            .copied()
-            .find(|id| is_font_texture(*id))
-        {
+        if let Some(font_id) = self.pending.keys().copied().find(|id| is_font_texture(*id)) {
             let now = std::time::Instant::now();
             if let Some(upload) = self.pending.remove(&font_id) {
                 if upload.next_retry_at <= now {
@@ -353,7 +357,7 @@ impl SdlEguiPainter {
                 self.finish_icon_upload(texture, texture_id, size, pixels);
             }
             Err(err) => {
-                eprintln!(
+                crate::diag!(
                     "no room for a {MAX_ICON_SIDE}x{MAX_ICON_SIDE} icon texture, will retry: {err}"
                 );
                 self.defer_or_give_up(texture_id, size, None, pixels, 0);
@@ -375,7 +379,7 @@ impl SdlEguiPainter {
             pixels,
             width * 4,
         ) {
-            eprintln!("couldn't patch a pooled icon texture, will retry: {err}");
+            crate::diag!("couldn't patch a pooled icon texture, will retry: {err}");
             if self.icon_free_pool.len() < ICON_FREE_POOL_CAP {
                 self.icon_free_pool.push(texture);
             } else {
@@ -422,9 +426,10 @@ impl SdlEguiPainter {
     ) {
         let attempts = attempts + 1;
         if attempts >= MAX_UPLOAD_ATTEMPTS {
-            eprintln!(
+            crate::diag!(
                 "giving up on a {}x{} texture after {attempts} attempts",
-                size[0], size[1]
+                size[0],
+                size[1]
             );
             self.pending.remove(&texture_id);
             return;
@@ -452,12 +457,15 @@ impl SdlEguiPainter {
     ) {
         let [width, height] = size;
         if pos.is_none() || !self.textures.contains_key(&texture_id) {
-            let texture =
-                canvas.create_texture_streaming(PixelFormatEnum::RGBA32, width as u32, height as u32);
+            let texture = canvas.create_texture_streaming(
+                PixelFormatEnum::RGBA32,
+                width as u32,
+                height as u32,
+            );
             let mut texture = match texture {
                 Ok(texture) => texture,
                 Err(err) => {
-                    eprintln!("no room for a {width}x{height} texture, will retry: {err}");
+                    crate::diag!("no room for a {width}x{height} texture, will retry: {err}");
                     self.defer_or_give_up(texture_id, size, pos, pixels, attempts);
                     return;
                 }
@@ -468,7 +476,7 @@ impl SdlEguiPainter {
                 pixels,
                 width * 4,
             ) {
-                eprintln!("couldn't upload a texture, will retry: {err}");
+                crate::diag!("couldn't upload a texture, will retry: {err}");
                 unsafe { texture.destroy() };
                 self.defer_or_give_up(texture_id, size, pos, pixels, attempts);
                 return;
@@ -485,11 +493,11 @@ impl SdlEguiPainter {
             return;
         }
         let Some([x, y]) = pos else {
-            eprintln!("partial texture update with no position, skipped");
+            crate::diag!("partial texture update with no position, skipped");
             return;
         };
         let Some(existing) = self.textures.get_mut(&texture_id) else {
-            eprintln!("partial update for a texture that no longer exists, skipped");
+            crate::diag!("partial update for a texture that no longer exists, skipped");
             return;
         };
         if let Err(err) = existing.texture.update(
@@ -497,7 +505,7 @@ impl SdlEguiPainter {
             pixels,
             width * 4,
         ) {
-            eprintln!("couldn't patch a texture: {err}");
+            crate::diag!("couldn't patch a texture: {err}");
         }
     }
 

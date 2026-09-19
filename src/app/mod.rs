@@ -417,6 +417,8 @@ pub struct App {
     /// Whether the streaming diagnostics panel is showing. Off by default - it covers the game and
     /// only means anything while something is being debugged.
     pub(crate) show_stream_stats: bool,
+    /// Set only by the in-stream report button. The shell consumes it after a clean frame.
+    diagnostic_capture_requested: bool,
     /// Starred app ids, read once at startup. The catalog list is rebuilt on every repaint, so
     /// hitting the memory card there would be a file read per frame.
     pub(crate) favorites: std::collections::BTreeSet<String>,
@@ -575,7 +577,7 @@ impl App {
                     Self::start_catalog_fetch(&http_client, tokens, &vpc_id_cache, user, owned_only)
                 }
                 Err(error) => {
-                    eprintln!("Saved GFN login could not be decoded, clearing it: {error:#}");
+                    crate::diag!("Saved GFN login could not be decoded, clearing it: {error:#}");
                     auth::clear_tokens();
                     AppState::Login
                 }
@@ -589,6 +591,7 @@ impl App {
             tokens,
             last_refresh_attempt: None,
             show_stream_stats: false,
+            diagnostic_capture_requested: false,
             link_keyframe_requests: 0,
             favorites: crate::gfn::favorites::ids(&favorite_games),
             favorite_games,
@@ -644,6 +647,10 @@ impl App {
 
     pub(crate) fn is_loading_queue_stats(&self) -> bool {
         self.queue_job.is_some()
+    }
+
+    pub(crate) fn take_diagnostic_capture_request(&mut self) -> bool {
+        std::mem::take(&mut self.diagnostic_capture_requested)
     }
 
     pub(crate) fn is_loading_regions(&self) -> bool {
@@ -867,6 +874,14 @@ impl App {
             }
             AppCommand::ToggleStreamStats => {
                 self.show_stream_stats = !self.show_stream_stats;
+                current_state
+            }
+            AppCommand::SaveDiagnosticReport => {
+                if matches!(current_state, AppState::Streaming { .. }) {
+                    self.diagnostic_capture_requested = true;
+                    self.toolbar_expanded = false;
+                    self.status_note = Some("Preparing local diagnostic report…".to_owned());
+                }
                 current_state
             }
             AppCommand::ToggleToolbar => {
@@ -2171,14 +2186,14 @@ impl App {
                 match crate::gfn::auth::refresh_tokens(&client, &tokens, &user_id).await {
                     Ok(refreshed) => {
                         if let Err(error) = crate::gfn::auth::save_tokens(&refreshed) {
-                            eprintln!("Could not persist refreshed GFN tokens: {error:#}");
+                            crate::diag!("Could not persist refreshed GFN tokens: {error:#}");
                         }
                         refreshed
                     }
                     // Let the request go out anyway: the error path already knows how to turn a
                     // rejection into a sign-in prompt, and the token may still be good.
                     Err(error) => {
-                        eprintln!("Startup token refresh failed: {error}");
+                        crate::diag!("Startup token refresh failed: {error}");
                         tokens
                     }
                 }
@@ -2217,7 +2232,7 @@ impl App {
                     if current.membership_tier.is_none() {
                         current.membership_tier = Some(tier);
                         if let Err(error) = crate::gfn::auth::save_tokens(&current) {
-                            eprintln!("Could not persist membership tier: {error:#}");
+                            crate::diag!("Could not persist membership tier: {error:#}");
                         }
                     }
                 });
@@ -2436,7 +2451,7 @@ impl App {
                     self.append_catalog_page(page.games);
                 }
                 PollJob::Done(Err(error)) => {
-                    eprintln!("catalog page fetch failed (non-fatal): {error:#}");
+                    crate::diag!("catalog page fetch failed (non-fatal): {error:#}");
                     self.paging.next_cursor = None;
                 }
             }
@@ -2734,7 +2749,7 @@ impl App {
                         }
                         crate::gfn::peer::PeerEvent::Error(err) => {
                             crate::log_error!("Streaming peer error: {err}");
-                            eprintln!("Streaming peer error: {err}");
+                            crate::diag!("Streaming peer error: {err}");
                             self.status_note = Some(self.tr1("status-peer-error", "error", &err));
                         }
                         crate::gfn::peer::PeerEvent::TimeWarning { code, seconds_left } => {
@@ -2751,7 +2766,7 @@ impl App {
                         }
                         crate::gfn::peer::PeerEvent::Disconnected(reason) => {
                             crate::log_error!("Streaming peer disconnected: {reason}");
-                            eprintln!("Streaming peer disconnected: {reason}");
+                            crate::diag!("Streaming peer disconnected: {reason}");
                             fatal_reason.get_or_insert(self.tr1(
                                 "error-stream-lost",
                                 "reason",
@@ -2842,17 +2857,16 @@ impl App {
                             };
                         }
                         Err(error) => {
-                            eprintln!("failed to start peer engine: {error:#}");
+                            crate::diag!("failed to start peer engine: {error:#}");
                             offer_sdp = Some(sdp);
                         }
                     }
                 }
-                Some(SignalingEvent::RemoteIce(candidate)) => {
-                    self.status_note =
-                        Some(self.tr1("status-remote-ice", "candidate", &candidate.candidate));
+                Some(SignalingEvent::RemoteIce(_candidate)) => {
+                    self.status_note = Some("Remote ICE candidate received".to_owned());
                 }
                 Some(SignalingEvent::Error(message)) => {
-                    eprintln!("Signaling: {message}");
+                    crate::diag!("Signaling: {message}");
                 }
                 Some(SignalingEvent::Disconnected(reason)) => {
                     disconnected_reason = Some(reason);
@@ -2996,7 +3010,7 @@ impl App {
 
     fn finish_login(&mut self, tokens: AuthTokens) -> AppState {
         if let Err(error) = auth::save_tokens(&tokens) {
-            eprintln!("Could not persist GFN login: {error:#}");
+            crate::diag!("Could not persist GFN login: {error:#}");
         }
         let user = match auth::user_from_tokens(&tokens) {
             Ok(user) => user,
@@ -3073,7 +3087,7 @@ impl App {
         match crate::gfn::auth::ensure_fresh_tokens(&self.http_client, &tokens, &user_id).await {
             Ok(refreshed) => self.tokens = Some(refreshed),
             Err(crate::gfn::auth::RefreshError::ReauthenticationRequired(message)) => {
-                eprintln!("Saved GFN login can no longer be refreshed: {message}");
+                crate::diag!("Saved GFN login can no longer be refreshed: {message}");
                 // Nothing to do here beyond dropping the dead credential; the next authenticated
                 // request surfaces the sign-in prompt through the usual error path.
                 crate::gfn::auth::clear_tokens();
@@ -3081,7 +3095,7 @@ impl App {
             }
             Err(crate::gfn::auth::RefreshError::Temporary(error)) => {
                 // Keep the saved login and try again after the backoff.
-                eprintln!("Deferring GFN token refresh: {error:#}");
+                crate::diag!("Deferring GFN token refresh: {error:#}");
             }
         }
     }
@@ -3109,13 +3123,13 @@ impl App {
         match crate::gfn::auth::refresh_tokens(&self.http_client, &tokens, &user.user_id).await {
             Ok(refreshed) => {
                 if let Err(error) = crate::gfn::auth::save_tokens(&refreshed) {
-                    eprintln!("Could not persist refreshed GFN tokens: {error:#}");
+                    crate::diag!("Could not persist refreshed GFN tokens: {error:#}");
                 }
                 self.tokens = Some(refreshed);
                 SessionRefresh::Renewed
             }
             Err(crate::gfn::auth::RefreshError::ReauthenticationRequired(message)) => {
-                eprintln!("Saved GFN login can no longer be refreshed: {message}");
+                crate::diag!("Saved GFN login can no longer be refreshed: {message}");
                 SessionRefresh::ReauthenticationRequired
             }
             Err(crate::gfn::auth::RefreshError::Temporary(error)) => {

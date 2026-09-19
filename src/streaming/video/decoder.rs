@@ -6,8 +6,8 @@ use anyhow::Result;
 
 #[cfg(target_os = "vita")]
 mod vita {
-    use super::super::memory::{CdramBlock, release_reserved_decoder_cdram};
     use super::super::AU_PTS_STEP;
+    use super::super::memory::{CdramBlock, release_reserved_decoder_cdram};
     use super::{DecoderConfig, VideoPixelFormat, VideoTextureTarget};
     use anyhow::{Context, Result, bail};
     use std::os::raw::c_void;
@@ -92,7 +92,8 @@ mod vita {
             )?;
             let block_size = block.capacity();
             let vaddr_size = size.div_ceil(CODEC_VADDR_ALIGNMENT) * CODEC_VADDR_ALIGNMENT;
-            let unmap_uid = unsafe { sceCodecEngineOpenUnmapMemBlock(block.ptr.cast(), block_size) };
+            let unmap_uid =
+                unsafe { sceCodecEngineOpenUnmapMemBlock(block.ptr.cast(), block_size) };
             if unmap_uid <= 0 {
                 bail!("sceCodecEngineOpenUnmapMemBlock failed: {unmap_uid:#x}");
             }
@@ -148,7 +149,7 @@ mod vita {
                 if ret >= 0 {
                     Ok(true)
                 } else if ret as u32 == SCE_SYSMODULE_ERROR_INVALID_VALUE {
-                    eprintln!(
+                    crate::diag!(
                         "sceSysmoduleLoadModule(SCE_SYSMODULE_AVCDEC) returned {ret:#x}; continuing with SceVideodec imports; is_loaded_before={loaded_before:#x}",
                     );
                     Ok(false)
@@ -180,8 +181,9 @@ mod vita {
             if config_ret < 0 {
                 bail!("sceVideodecSetConfigInternal failed: {config_ret:#x}");
             }
-            let mode_ret =
-                unsafe { sceAvcdecSetDecodeMode(SCE_VIDEODEC_TYPE_HW_AVCDEC, AVCDEC_MODE_EXTENDED) };
+            let mode_ret = unsafe {
+                sceAvcdecSetDecodeMode(SCE_VIDEODEC_TYPE_HW_AVCDEC, AVCDEC_MODE_EXTENDED)
+            };
             if mode_ret < 0 {
                 bail!("sceAvcdecSetDecodeMode failed: {mode_ret:#x}");
             }
@@ -235,7 +237,7 @@ mod vita {
 
             match unsafe { Self::try_initialize_internal(width, height) } {
                 Ok(codec_memory) => {
-                    eprintln!("AVCDEC backend: internal (DecodeAuInternal)");
+                    crate::diag!("AVCDEC backend: internal (DecodeAuInternal)");
                     Ok(Self {
                         module_loaded,
                         backend: LibraryBackend::Internal {
@@ -244,7 +246,7 @@ mod vita {
                     })
                 }
                 Err(internal_error) => {
-                    eprintln!(
+                    crate::diag!(
                         "AVCDEC internal init failed ({internal_error:#}); falling back to public InitLibrary"
                     );
                     unsafe {
@@ -252,7 +254,7 @@ mod vita {
                     }
                     match unsafe { Self::initialize_public(width, height) } {
                         Ok(()) => {
-                            eprintln!("AVCDEC backend: public (sceAvcdecDecode)");
+                            crate::diag!("AVCDEC backend: public (sceAvcdecDecode)");
                             Ok(Self {
                                 module_loaded,
                                 backend: LibraryBackend::Public,
@@ -312,8 +314,7 @@ mod vita {
     impl HwVideoDecoder {
         pub fn new(config: DecoderConfig) -> Result<Self> {
             unsafe {
-                let library =
-                    AvcdecLibrary::initialize(config.decode_width, config.decode_height)?;
+                let library = AvcdecLibrary::initialize(config.decode_width, config.decode_height)?;
                 let uses_internal = library.uses_internal();
 
                 let mut query = SceAvcdecQueryDecoderInfo {
@@ -366,7 +367,11 @@ mod vita {
                         &mut query,
                     )
                 } else {
-                    sceAvcdecCreateDecoder(SCE_VIDEODEC_TYPE_HW_AVCDEC, &mut decoder_control, &query)
+                    sceAvcdecCreateDecoder(
+                        SCE_VIDEODEC_TYPE_HW_AVCDEC,
+                        &mut decoder_control,
+                        &query,
+                    )
                 };
                 if ret < 0 {
                     bail!(

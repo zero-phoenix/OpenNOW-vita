@@ -129,7 +129,7 @@ fn embedded_texture(
     }
 
     let decoded = image::load_from_memory(bytes)
-        .inspect_err(|error| eprintln!("failed to decode embedded image {key}: {error}"))
+        .inspect_err(|error| crate::diag!("failed to decode embedded image {key}: {error}"))
         .ok()
         .map(|image| {
             let rgba = image.to_rgba8();
@@ -171,6 +171,7 @@ enum StreamIcon {
     Keyboard,
     Stop,
     Stats,
+    Report,
     Power,
     Mouse,
     Collapse,
@@ -241,6 +242,29 @@ fn paint_stream_icon(
                     tint,
                 );
             }
+        }
+        // A small camera: explicit because report capture is always user initiated.
+        StreamIcon::Report => {
+            let body = rect.shrink2(egui::vec2(1.5, 3.5));
+            painter.rect_stroke(
+                body,
+                2.0,
+                egui::Stroke::new(1.2_f32, tint),
+                egui::StrokeKind::Inside,
+            );
+            painter.rect_filled(
+                egui::Rect::from_min_size(
+                    egui::pos2(body.min.x + 2.0, body.min.y - 2.0),
+                    egui::vec2(body.width() * 0.35, 2.0),
+                ),
+                0.5,
+                tint,
+            );
+            painter.circle_stroke(
+                body.center(),
+                body.height() * 0.23,
+                egui::Stroke::new(1.2_f32, tint),
+            );
         }
         StreamIcon::Power => {
             let c = rect.center();
@@ -1929,7 +1953,11 @@ fn paint_pc_overlay(ui: &mut egui::Ui, config: opennow_core::config::InputConfig
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 label,
-                egui::FontId::proportional(if zone.id == ZoneId::ModeToggle { 16.0 } else { 13.0 }),
+                egui::FontId::proportional(if zone.id == ZoneId::ModeToggle {
+                    16.0
+                } else {
+                    13.0
+                }),
                 egui::Color32::from_rgba_unmultiplied(255, 255, 255, alpha.saturating_add(70)),
             );
         }
@@ -2007,7 +2035,10 @@ fn paint_control_manual(
     let line_height = 13.0;
     let card = egui::Rect::from_center_size(
         screen.center(),
-        egui::vec2(screen.width() * 0.52, line_height * (rows.len() as f32 + 1.8)),
+        egui::vec2(
+            screen.width() * 0.52,
+            line_height * (rows.len() as f32 + 1.8),
+        ),
     );
     let card_alpha = alpha.saturating_sub(20).max(30);
     painter.rect_filled(
@@ -4193,6 +4224,12 @@ fn streaming_screen(
                         command = Some(AppCommand::ToggleStreamStats);
                     }
 
+                    let report = stream_icon_button(ui, StreamIcon::Report, WARNING);
+                    reserve_stream_touch(ui.ctx(), report.rect);
+                    if report.clicked() {
+                        command = Some(AppCommand::SaveDiagnosticReport);
+                    }
+
                     let timer_active = crate::gfn::stream_prefs::session_timer_enabled();
                     let timer = stream_icon_button(
                         ui,
@@ -4523,19 +4560,37 @@ fn windows_shortcuts() -> Vec<(&'static str, AppCommand)> {
         ("Inicio", AppCommand::SendKey(proto::KEY_LEFT_WIN)),
         ("Escritorio", chord(false, false, false, true, letter('d'))),
         ("Explorador", chord(false, false, false, true, letter('e'))),
-        ("Vista tareas", chord(false, false, false, true, proto::KEY_TAB)),
+        (
+            "Vista tareas",
+            chord(false, false, false, true, proto::KEY_TAB),
+        ),
         ("Maximizar", chord(false, false, false, true, proto::KEY_UP)),
-        ("Cambiar ventana", chord(false, false, true, false, proto::KEY_TAB)),
-        ("Cerrar ventana", chord(false, false, true, false, proto::KEY_F4)),
+        (
+            "Cambiar ventana",
+            chord(false, false, true, false, proto::KEY_TAB),
+        ),
+        (
+            "Cerrar ventana",
+            chord(false, false, true, false, proto::KEY_F4),
+        ),
         // The one that was impossible before: it needs Shift as a real held key.
-        ("Administrador", chord(true, true, false, false, proto::KEY_ESCAPE)),
+        (
+            "Administrador",
+            chord(true, true, false, false, proto::KEY_ESCAPE),
+        ),
         ("Copiar", chord(false, true, false, false, letter('c'))),
         ("Pegar", chord(false, true, false, false, letter('v'))),
         ("Deshacer", chord(false, true, false, false, letter('z'))),
-        ("Seleccionar todo", chord(false, true, false, false, letter('a'))),
+        (
+            "Seleccionar todo",
+            chord(false, true, false, false, letter('a')),
+        ),
         ("Pantalla completa", AppCommand::SendKey(proto::KEY_F11)),
         ("Bloquear PC", chord(false, false, false, true, letter('l'))),
-        ("Seguridad", chord(false, true, true, false, proto::KEY_DELETE)),
+        (
+            "Seguridad",
+            chord(false, true, true, false, proto::KEY_DELETE),
+        ),
         ("Buscar", chord(false, false, false, true, letter('s'))),
     ]
 }
@@ -4567,26 +4622,23 @@ fn windows_shortcuts_page(ctx: &egui::Context) -> Vec<AppCommand> {
 
                     let shortcuts = windows_shortcuts();
                     let columns = 4.0_f32;
-                    let width =
-                        (inner_width - (columns - 1.0) * KEYBOARD_CAP_SPACING) / columns;
+                    let width = (inner_width - (columns - 1.0) * KEYBOARD_CAP_SPACING) / columns;
                     for row in shortcuts.chunks(4) {
                         ui.horizontal(|ui| {
                             for (label, command) in row {
                                 let button =
                                     egui::Button::new(egui::RichText::new(*label).size(10.0))
                                         .fill(BG_RAISED.gamma_multiply(translucency));
-                                if ui
-                                    .add_sized([width, KEYBOARD_CAP_SIZE.y], button)
-                                    .clicked()
-                                {
+                                if ui.add_sized([width, KEYBOARD_CAP_SIZE.y], button).clicked() {
                                     commands.push(command.clone());
                                 }
                             }
                         });
                     }
                     ui.horizontal(|ui| {
-                        let back = egui::Button::new(egui::RichText::new("\u{2328} Teclado").size(10.0))
-                            .fill(ACCENT.gamma_multiply(0.35));
+                        let back =
+                            egui::Button::new(egui::RichText::new("\u{2328} Teclado").size(10.0))
+                                .fill(ACCENT.gamma_multiply(0.35));
                         if ui.add_sized([width, KEYBOARD_CAP_SIZE.y], back).clicked() {
                             commands.push(AppCommand::OpenShortcuts);
                         }
@@ -4734,9 +4786,7 @@ fn on_screen_keyboard(ctx: &egui::Context, shift: bool, ctrl: bool, alt: bool) -
                                             AppCommand::SendKey(key)
                                         });
                                     }
-                                    KeyCap::Shortcuts => {
-                                        commands.push(AppCommand::OpenShortcuts)
-                                    }
+                                    KeyCap::Shortcuts => commands.push(AppCommand::OpenShortcuts),
                                     KeyCap::Shift => commands.push(AppCommand::ToggleKeyShift),
                                     KeyCap::Ctrl => commands.push(AppCommand::ToggleKeyCtrl),
                                     KeyCap::Alt => commands.push(AppCommand::ToggleKeyAlt),

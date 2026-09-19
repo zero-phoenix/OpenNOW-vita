@@ -113,11 +113,7 @@ impl VideoDecodeWorker {
         Arc::clone(&self.metrics)
     }
 
-    pub fn submit_access_unit(
-        &self,
-        data: Vec<u8>,
-        source_frame_duration_us: Option<u64>,
-    ) -> bool {
+    pub fn submit_access_unit(&self, data: Vec<u8>, source_frame_duration_us: Option<u64>) -> bool {
         let source_fps = source_frame_duration_us
             .filter(|duration| *duration > 0)
             .map(|duration| 1_000_000 / duration)
@@ -266,7 +262,7 @@ fn submit_queued_access_unit(
         match HwVideoDecoder::new(config) {
             Ok(new_decoder) => *decoder = Some(new_decoder),
             Err(error) => {
-                eprintln!("failed to recreate H264 decoder: {error:#}");
+                crate::diag!("failed to recreate H264 decoder: {error:#}");
                 return;
             }
         }
@@ -285,14 +281,14 @@ fn submit_queued_access_unit(
             output_state.picture_pending = true;
         }
         Ok(Err(error)) => {
-            eprintln!("H264 AU submit error, recreating decoder: {error:#}");
+            crate::diag!("H264 AU submit error, recreating decoder: {error:#}");
             metrics.decode_errors.fetch_add(1, Ordering::Relaxed);
             *decoder = None;
             output_state.picture_pending = false;
             return;
         }
         Err(_) => {
-            eprintln!("H264 decoder panicked on submit; recreating on next frame");
+            crate::diag!("H264 decoder panicked on submit; recreating on next frame");
             metrics.decode_errors.fetch_add(1, Ordering::Relaxed);
             *decoder = None;
             output_state.picture_pending = false;
@@ -357,7 +353,7 @@ fn drain_picture(
                 if output_looks_blank(direct_target.target()) {
                     output_state.blank_streak += 1;
                     if output_state.blank_streak >= BLANK_FRAME_FALLBACK_STREAK {
-                        eprintln!(
+                        crate::diag!(
                             "{pixel_format:?} decoded {BLANK_FRAME_FALLBACK_STREAK} frames in a \
                              row with blank output (Vita3K-style HLE gap); requesting Iyuv fallback"
                         );
@@ -398,13 +394,13 @@ fn drain_picture(
             output_state.picture_pending = false;
         }
         Ok(Err(error)) => {
-            eprintln!("H264 get_picture error, recreating decoder: {error:#}");
+            crate::diag!("H264 get_picture error, recreating decoder: {error:#}");
             metrics.decode_errors.fetch_add(1, Ordering::Relaxed);
             *decoder = None;
             output_state.picture_pending = false;
         }
         Err(_) => {
-            eprintln!("H264 decoder panicked on get_picture; recreating on next frame");
+            crate::diag!("H264 decoder panicked on get_picture; recreating on next frame");
             metrics.decode_errors.fetch_add(1, Ordering::Relaxed);
             *decoder = None;
             output_state.picture_pending = false;
