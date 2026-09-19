@@ -18,7 +18,8 @@ fn main() {
     // Even in that case, preserve the fact that the tree was dirty. The Makefile supplies the
     // commit for Docker builds, and treating an edited VPK as that clean commit would attach a
     // report to the wrong artifact.
-    let rev = std::env::var("OPENNOW_BUILD_REV").ok().or_else(|| {
+    let supplied_rev = std::env::var("OPENNOW_BUILD_REV").ok();
+    let rev = supplied_rev.clone().or_else(|| {
         let output = Command::new("git")
             .args(["rev-parse", "--short=12", "HEAD"])
             .output()
@@ -29,11 +30,15 @@ fn main() {
         let rev = String::from_utf8(output.stdout).ok()?.trim().to_owned();
         Some(rev)
     });
-    let dirty = Command::new("git")
-        .args(["status", "--porcelain"])
-        .output()
-        .ok()
-        .is_some_and(|out| !out.stdout.is_empty());
+    // Docker repairs CRLF wrapper scripts after the caller has inspected the checkout. That
+    // repair is necessary for VitaSDK, but must not turn an otherwise clean artifact into a
+    // fictional `-dirty` build. A supplied revision is therefore an atomic source-state stamp.
+    let dirty = supplied_rev.is_none()
+        && Command::new("git")
+            .args(["status", "--porcelain"])
+            .output()
+            .ok()
+            .is_some_and(|out| !out.stdout.is_empty());
     let rev = rev.map(|rev| {
         if dirty && !rev.ends_with("-dirty") {
             format!("{rev}-dirty")
