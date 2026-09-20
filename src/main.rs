@@ -3,6 +3,7 @@ use vita_newlib_shims as _;
 mod app;
 mod diag;
 mod gfn;
+mod github;
 mod i18n;
 mod input;
 mod input_stream;

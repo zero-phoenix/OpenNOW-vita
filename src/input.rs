@@ -56,6 +56,10 @@ pub enum AppCommand {
     ToggleStreamStats,
     /// User-consented, local-only screenshot and diagnostic bundle while streaming.
     SaveDiagnosticReport,
+    /// Starts GitHub's device-code sign-in for the diagnostics uploader.
+    StartGitHubReportsLogin,
+    /// Removes only the encrypted GitHub diagnostics credential from this Vita.
+    SignOutGitHubReports,
     /// Shows or hides the in-game keyboard.
     ToggleKeyboard,
     SendKey(crate::gfn::input_protocol::KeyStroke),

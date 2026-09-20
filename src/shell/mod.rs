@@ -234,10 +234,17 @@ pub async fn run(mut app: App) -> Result<()> {
     crate::logger::reset_frame_stats_log();
     crate::logger::write_frame_stats("=== OpenNOW-vita frame stats — new session ===");
     let report_writer = crate::reports::ReportWriter::new();
+    // Captures begin at app launch, then keep a fixed 15-second cadence independent of FPS.
+    let mut next_automatic_report = Instant::now();
     // Two rendered frames after the click let the overlay collapse before framebuffer capture.
     let mut report_capture_after_frames: Option<u8> = None;
 
     loop {
+        if Instant::now() >= next_automatic_report {
+            next_automatic_report = Instant::now() + crate::reports::capture_interval();
+            // A busy writer is intentional: it preserves rendering and the next cadence tries again.
+            let _ = report_writer.capture_automatic();
+        }
         if let Some(message) = report_writer.try_result() {
             app.status_note = Some(message);
         }
@@ -426,6 +433,23 @@ pub async fn run(mut app: App) -> Result<()> {
         }
         let tick_started_at = Instant::now();
         app.tick().await?;
+        // Flip the upload gate before consuming any post-tick reporting request.  A successful
+        // session can enter `Streaming` inside `tick`, so doing this only in the draw block
+        // below would leave one frame in which a pending uploader might start a request.
+        if matches!(app.state, AppState::Streaming { .. }) && !was_streaming {
+            was_streaming = true;
+            report_writer.set_streaming(true);
+        }
+        if app.take_report_prelaunch_flush() {
+            report_writer.flush_upload();
+        }
+        if let Some(tokens) = app.take_github_login() {
+            report_writer.set_github_login(tokens)?;
+            report_writer.flush_upload();
+        }
+        if app.take_github_signout() {
+            report_writer.clear_github_login();
+        }
         let tick_elapsed = tick_started_at.elapsed();
 
         let show_video = {
@@ -437,6 +461,7 @@ pub async fn run(mut app: App) -> Result<()> {
             // memory card and this runs 60 times a second.
             if streaming_peer.is_some() != was_streaming {
                 was_streaming = streaming_peer.is_some();
+                report_writer.set_streaming(was_streaming);
                 if !was_streaming {
                     // Leaving a session: settle anything the host is still holding.
                     for output in stream_input.release_all() {
@@ -448,6 +473,9 @@ pub async fn run(mut app: App) -> Result<()> {
                             _ => {}
                         }
                     }
+                    // A post-disconnect capture is queued before the accumulated evidence flushes.
+                    let _ = report_writer.capture_automatic();
+                    report_writer.flush_upload();
                 }
             }
             let latest_video = streaming_peer.and_then(|peer| peer.video_frame());
@@ -556,6 +584,9 @@ pub async fn run(mut app: App) -> Result<()> {
                 });
             }
             app.handle_command(command).await?;
+        }
+        if app.take_report_prelaunch_flush() {
+            report_writer.flush_upload();
         }
         if app.take_diagnostic_capture_request() {
             report_capture_after_frames = Some(2);

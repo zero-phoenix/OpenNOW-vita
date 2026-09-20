@@ -781,13 +781,16 @@ struct CatalogView<'a> {
     settings: SettingsView,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct SettingsView {
     open: bool,
     tab: crate::app::settings_menu::SettingsTab,
     focus: usize,
     expanded: Option<usize>,
     option_focus: usize,
+    github_report_status: String,
+    github_report_can_start: bool,
+    github_report_is_signed_in: bool,
 }
 
 impl SettingsView {
@@ -798,6 +801,9 @@ impl SettingsView {
             focus: app.settings_focus,
             expanded: app.settings_expanded,
             option_focus: app.settings_option_focus,
+            github_report_status: app.github_report_status(),
+            github_report_can_start: app.github_report_can_start(),
+            github_report_is_signed_in: app.github_report_is_signed_in(),
         }
     }
 }
@@ -1340,7 +1346,7 @@ fn catalog_screen(ctx: &egui::Context, i18n: &I18n, view: &CatalogView<'_>) -> V
                         i18n,
                         view.user,
                         &view.regions,
-                        view.settings,
+                        view.settings.clone(),
                     ));
                     ui.add_space(6.0);
                     if let Some(cmd) = sort_picker(ui, i18n, view.sort, view.games) {
@@ -1560,6 +1566,20 @@ fn settings_modal(
                                 for cmd in controls_settings_panel(ui, i18n, settings, regions) {
                                     commands.push(cmd);
                                 }
+                            } else if settings.tab == SettingsTab::Account {
+                                ui.label(egui::RichText::new("Reportes automáticos").size(14.0).strong());
+                                ui.label(egui::RichText::new("PNG sin pérdida cada 15 s. Se guarda localmente durante el streaming y se sube antes de iniciar o al desconectarse.").size(11.0).color(TEXT_DIM));
+                                ui.add_space(6.0);
+                                ui.label(egui::RichText::new(&settings.github_report_status).size(11.0).color(egui::Color32::WHITE));
+                                ui.add_space(8.0);
+                                if settings.github_report_can_start && ui.add_sized([220.0, 28.0], egui::Button::new("Conectar GitHub para reportes").fill(ACCENT)).clicked() {
+                                    commands.push(AppCommand::StartGitHubReportsLogin);
+                                }
+                                if settings.github_report_is_signed_in && ui.add_sized([180.0, 26.0], egui::Button::new("Cerrar sesión de GitHub")).clicked() {
+                                    commands.push(AppCommand::SignOutGitHubReports);
+                                }
+                                ui.add_space(8.0);
+                                ui.label(egui::RichText::new("Destino: zero-phoenix/OpenNOW-vita · rama diagnostics-reports").size(10.0).color(TEXT_DIM));
                             } else {
                                 let row_count = settings.tab.row_count();
                                 for row in 0..row_count {

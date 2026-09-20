@@ -1,5 +1,12 @@
 # OpenNOW Vita
 
+> ## Revisión obligatoria de diagnósticos
+>
+> Toda persona o IA que revise, modifique o actualice este repositorio **debe inspeccionar todos
+> los manifiestos, logs y capturas PNG nuevos de `diagnostics-reports` antes de cambiar código**.
+> El SHA-256 y la ruta de GitHub del manifiesto son la constancia auditable. Todo pull request debe
+> confirmarlo expresamente; la comprobación del repositorio rechaza PR sin esa confirmación.
+
 [![Build VPK](https://github.com/zero-phoenix/OpenNOW-vita/actions/workflows/build.yml/badge.svg)](https://github.com/zero-phoenix/OpenNOW-vita/actions/workflows/build.yml)
 [![Última release](https://img.shields.io/github/v/release/zero-phoenix/OpenNOW-vita?label=%C3%BAltima%20release)](https://github.com/zero-phoenix/OpenNOW-vita/releases/latest)
 [![Licencia: MPL-2.0](https://img.shields.io/badge/licencia-MPL--2.0-blue.svg)](LICENSE)
