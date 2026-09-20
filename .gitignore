@@ -1,6 +1,7 @@
 reference/
 /target
 /vita-adb/build
+__pycache__/
 # /docs is local scratch (protocol reverse-engineering notes and the like) and stays out of the
 # repository - but the screenshots the README points at have to be in it, or they render as
 # broken images on GitHub.
