@@ -234,8 +234,9 @@ pub async fn run(mut app: App) -> Result<()> {
     crate::logger::reset_frame_stats_log();
     crate::logger::write_frame_stats("=== OpenNOW-vita frame stats — new session ===");
     let report_writer = crate::reports::ReportWriter::new();
-    // Captures begin at app launch, then keep a fixed 15-second cadence independent of FPS.
-    let mut next_automatic_report = Instant::now();
+    // Give the compositor one second to publish its first framebuffer.  This is still an
+    // app-start capture, while avoiding a `sceDisplayGetFrameBuf` call before Vita3K has one.
+    let mut next_automatic_report = Instant::now() + Duration::from_secs(1);
     // Two rendered frames after the click let the overlay collapse before framebuffer capture.
     let mut report_capture_after_frames: Option<u8> = None;
 
