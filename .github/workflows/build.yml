@@ -1,12 +1,12 @@
 name: Build VPK
 
-# Builds the real PS Vita VPK on every push/PR against master, plus on version tags (where the
+# Builds the real PS Vita VPK on every push/PR, plus on version tags (where the
 # `release` job below then publishes it). Runs inside the official `vitasdk/vitasdk` container,
 # which ships a genuine `arm-vita-eabi-*` toolchain and precompiled Vita stub libraries - the same
 # one used to manually validate this project's builds before this workflow existed.
 on:
   push:
-    branches: [master]
+    branches: ["**"]
     tags: ["v*"]
   pull_request:
     branches: [master]
@@ -56,6 +56,9 @@ jobs:
 
       - name: Install cargo-vita
         run: cargo +nightly install cargo-vita
+
+      - name: Run host tests
+        run: cargo test -p opennow-core --target x86_64-unknown-linux-gnu
 
       - name: Build VPK
         run: |
