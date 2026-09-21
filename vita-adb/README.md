@@ -58,6 +58,19 @@ py vita-adb/host/vita_adb.py devices
 py vita-adb/host/vita_adb.py --port COM7 ping
 ```
 
+## Registro local de una prueba de OpenNOW
+
+Con VitaShell FTP abierto, este monitor copia al PC las capturas PNG y los logs
+que el VPK ya genera cada 15 segundos. No sube nada a GitHub ni borra evidencia
+de la Vita:
+
+```powershell
+py vita-adb/host/vita_monitor.py --host 192.168.18.32 --output vita-evidence --watch
+```
+
+Deténlo con `Ctrl+C` después de cerrar el juego. Cada paquete conserva su
+`manifest.json`, captura y logs junto a `monitor.log` en el PC.
+
 ## Verificación incluida
 
 `py vita-adb/host/test_vita_adb.py` prueba las tramas, firma y detección de
