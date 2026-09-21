@@ -171,7 +171,6 @@ enum StreamIcon {
     Keyboard,
     Stop,
     Stats,
-    Report,
     Power,
     Mouse,
     Collapse,
@@ -242,29 +241,6 @@ fn paint_stream_icon(
                     tint,
                 );
             }
-        }
-        // A small camera: explicit because report capture is always user initiated.
-        StreamIcon::Report => {
-            let body = rect.shrink2(egui::vec2(1.5, 3.5));
-            painter.rect_stroke(
-                body,
-                2.0,
-                egui::Stroke::new(1.2_f32, tint),
-                egui::StrokeKind::Inside,
-            );
-            painter.rect_filled(
-                egui::Rect::from_min_size(
-                    egui::pos2(body.min.x + 2.0, body.min.y - 2.0),
-                    egui::vec2(body.width() * 0.35, 2.0),
-                ),
-                0.5,
-                tint,
-            );
-            painter.circle_stroke(
-                body.center(),
-                body.height() * 0.23,
-                egui::Stroke::new(1.2_f32, tint),
-            );
         }
         StreamIcon::Power => {
             let c = rect.center();
@@ -788,9 +764,6 @@ struct SettingsView {
     focus: usize,
     expanded: Option<usize>,
     option_focus: usize,
-    github_report_status: String,
-    github_report_can_start: bool,
-    github_report_is_signed_in: bool,
 }
 
 impl SettingsView {
@@ -801,9 +774,6 @@ impl SettingsView {
             focus: app.settings_focus,
             expanded: app.settings_expanded,
             option_focus: app.settings_option_focus,
-            github_report_status: app.github_report_status(),
-            github_report_can_start: app.github_report_can_start(),
-            github_report_is_signed_in: app.github_report_is_signed_in(),
         }
     }
 }
@@ -1567,19 +1537,8 @@ fn settings_modal(
                                     commands.push(cmd);
                                 }
                             } else if settings.tab == SettingsTab::Account {
-                                ui.label(egui::RichText::new("Reportes automáticos").size(14.0).strong());
-                                ui.label(egui::RichText::new("PNG sin pérdida cada 15 s. Se guarda localmente durante el streaming y se sube antes de iniciar o al desconectarse.").size(11.0).color(TEXT_DIM));
-                                ui.add_space(6.0);
-                                ui.label(egui::RichText::new(&settings.github_report_status).size(11.0).color(egui::Color32::WHITE));
-                                ui.add_space(8.0);
-                                if settings.github_report_can_start && ui.add_sized([220.0, 28.0], egui::Button::new("Conectar GitHub para reportes").fill(ACCENT)).clicked() {
-                                    commands.push(AppCommand::StartGitHubReportsLogin);
-                                }
-                                if settings.github_report_is_signed_in && ui.add_sized([180.0, 26.0], egui::Button::new("Cerrar sesión de GitHub")).clicked() {
-                                    commands.push(AppCommand::SignOutGitHubReports);
-                                }
-                                ui.add_space(8.0);
-                                ui.label(egui::RichText::new("Destino: zero-phoenix/OpenNOW-vita · rama diagnostics-reports").size(10.0).color(TEXT_DIM));
+                                ui.label(egui::RichText::new("OpenNOW no captura ni envía evidencia.").size(11.0).color(TEXT_DIM));
+                                ui.label(egui::RichText::new("El diagnóstico del sistema vive en Vita Lab.").size(11.0).color(TEXT_DIM));
                             } else {
                                 let row_count = settings.tab.row_count();
                                 for row in 0..row_count {
@@ -4242,12 +4201,6 @@ fn streaming_screen(
                     reserve_stream_touch(ui.ctx(), stats.rect);
                     if stats.clicked() {
                         command = Some(AppCommand::ToggleStreamStats);
-                    }
-
-                    let report = stream_icon_button(ui, StreamIcon::Report, WARNING);
-                    reserve_stream_touch(ui.ctx(), report.rect);
-                    if report.clicked() {
-                        command = Some(AppCommand::SaveDiagnosticReport);
                     }
 
                     let timer_active = crate::gfn::stream_prefs::session_timer_enabled();

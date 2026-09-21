@@ -233,35 +233,7 @@ pub async fn run(mut app: App) -> Result<()> {
     let mut frame_stats = FrameStats::default();
     crate::logger::reset_frame_stats_log();
     crate::logger::write_frame_stats("=== OpenNOW-vita frame stats — new session ===");
-    let report_writer = crate::reports::ReportWriter::new();
-    // Give the compositor one second to publish its first framebuffer.  This is still an
-    // app-start capture, while avoiding a `sceDisplayGetFrameBuf` call before Vita3K has one.
-    let mut next_automatic_report = Instant::now() + Duration::from_secs(1);
-    // Two rendered frames after the click let the overlay collapse before framebuffer capture.
-    let mut report_capture_after_frames: Option<u8> = None;
-
     loop {
-        if Instant::now() >= next_automatic_report {
-            next_automatic_report = Instant::now() + crate::reports::capture_interval();
-            // A busy writer is intentional: it preserves rendering and the next cadence tries again.
-            let _ = report_writer.capture_automatic();
-        }
-        if let Some(message) = report_writer.try_result() {
-            app.status_note = Some(message);
-        }
-        if let Some(remaining) = report_capture_after_frames {
-            if remaining == 0 {
-                report_capture_after_frames = None;
-                match report_writer.capture_now() {
-                    Ok(()) => app.status_note = Some("Writing local diagnostic report…".to_owned()),
-                    Err(error) => {
-                        app.status_note = Some(format!("Diagnostic report unavailable: {error}"))
-                    }
-                }
-            } else {
-                report_capture_after_frames = Some(remaining - 1);
-            }
-        }
         let loop_started_at = Instant::now();
         frame_stats.note_iteration();
         frame_stats.maybe_flush();
@@ -429,28 +401,8 @@ pub async fn run(mut app: App) -> Result<()> {
         for command in direct_commands {
             app.handle_command(command).await?;
         }
-        if app.take_diagnostic_capture_request() {
-            report_capture_after_frames = Some(2);
-        }
         let tick_started_at = Instant::now();
         app.tick().await?;
-        // Flip the upload gate before consuming any post-tick reporting request.  A successful
-        // session can enter `Streaming` inside `tick`, so doing this only in the draw block
-        // below would leave one frame in which a pending uploader might start a request.
-        if matches!(app.state, AppState::Streaming { .. }) && !was_streaming {
-            was_streaming = true;
-            report_writer.set_streaming(true);
-        }
-        if app.take_report_prelaunch_flush() {
-            report_writer.flush_upload();
-        }
-        if let Some(tokens) = app.take_github_login() {
-            report_writer.set_github_login(tokens)?;
-            report_writer.flush_upload();
-        }
-        if app.take_github_signout() {
-            report_writer.clear_github_login();
-        }
         let tick_elapsed = tick_started_at.elapsed();
 
         let show_video = {
@@ -462,7 +414,6 @@ pub async fn run(mut app: App) -> Result<()> {
             // memory card and this runs 60 times a second.
             if streaming_peer.is_some() != was_streaming {
                 was_streaming = streaming_peer.is_some();
-                report_writer.set_streaming(was_streaming);
                 if !was_streaming {
                     // Leaving a session: settle anything the host is still holding.
                     for output in stream_input.release_all() {
@@ -474,9 +425,6 @@ pub async fn run(mut app: App) -> Result<()> {
                             _ => {}
                         }
                     }
-                    // A post-disconnect capture is queued before the accumulated evidence flushes.
-                    let _ = report_writer.capture_automatic();
-                    report_writer.flush_upload();
                 }
             }
             let latest_video = streaming_peer.and_then(|peer| peer.video_frame());
@@ -586,13 +534,6 @@ pub async fn run(mut app: App) -> Result<()> {
             }
             app.handle_command(command).await?;
         }
-        if app.take_report_prelaunch_flush() {
-            report_writer.flush_upload();
-        }
-        if app.take_diagnostic_capture_request() {
-            report_capture_after_frames = Some(2);
-        }
-
         let tessellate_started_at = Instant::now();
         let clipped_primitives =
             egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);

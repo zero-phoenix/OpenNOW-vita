@@ -1,12 +1,5 @@
 # OpenNOW Vita
 
-> ## Mandatory diagnostics review
->
-> Every human or AI reviewing, modifying, or updating this repository **must inspect all new
-> `diagnostics-reports` manifests, logs, and PNG captures before changing code**. A manifest's
-> SHA-256 and its GitHub path are the auditable record. Pull requests must explicitly confirm
-> that review; the repository check rejects PRs without that confirmation.
-
 [![Build VPK](https://github.com/zero-phoenix/OpenNOW-vita/actions/workflows/build.yml/badge.svg)](https://github.com/zero-phoenix/OpenNOW-vita/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/zero-phoenix/OpenNOW-vita?label=latest%20release)](https://github.com/zero-phoenix/OpenNOW-vita/releases/latest)
 [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
@@ -451,12 +444,9 @@ Only needed if you want to build locally instead of using a CI-produced `.vpk`.
 
 ```sh
 make vpk                                    # builds target/armv7-sony-vita-newlibeabihf/release/opennow-vita.vpk
-make upload-vpk VITA_IP=192.168.0.103       # uploads the VPK to ux0:/data/ via VitaShell/vitacompanion
-make update-run-vita VITA_IP=192.168.0.103  # build + update + launch in one step
 ```
 
-Uploading requires [VitaShell](https://github.com/TheOfficialFloW/VitaShell)'s FTP server or
-`vitacompanion` running on the console, on the same network as your computer. The VPK also
+Copy the resulting VPK to the console using your preferred installation method. The VPK also
 installs and runs in the Vita3K emulator (subject to the `sceNet` stub limitation noted in
 [Status](#status) above).
 

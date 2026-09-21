@@ -54,12 +54,6 @@ pub enum AppCommand {
     ToggleFavorite(String),
     /// Shows or hides the streaming diagnostics panel.
     ToggleStreamStats,
-    /// User-consented, local-only screenshot and diagnostic bundle while streaming.
-    SaveDiagnosticReport,
-    /// Starts GitHub's device-code sign-in for the diagnostics uploader.
-    StartGitHubReportsLogin,
-    /// Removes only the encrypted GitHub diagnostics credential from this Vita.
-    SignOutGitHubReports,
     /// Shows or hides the in-game keyboard.
     ToggleKeyboard,
     SendKey(crate::gfn::input_protocol::KeyStroke),
@@ -369,4 +363,4 @@ fn map_mouse_button(button: MouseButton) -> egui::PointerButton {
 
 /// Streaming-session input lives in `crate::input_stream`, which is the SDL half of the mapping;
 /// everything it decides comes from `opennow_core`, where it can be tested without a console.
-pub use crate::input_stream::{StreamInput, gamepad_snapshot, read_pad, stats};
+pub use crate::input_stream::{gamepad_snapshot, read_pad, stats, StreamInput};

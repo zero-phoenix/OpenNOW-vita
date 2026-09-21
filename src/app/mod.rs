@@ -7,7 +7,6 @@ use crate::gfn::catalog::{self, GameSummary};
 use crate::gfn::cloudmatch::{self, SessionInfo};
 use crate::gfn::covers::{self, CoverStore};
 use crate::gfn::signaling::{self, SignalingEvent, SignalingHandle};
-use crate::github;
 use crate::input::{AppCommand, InputCommand};
 use crate::jobs::{PollJob, poll_job};
 use crate::locale::Locale;
@@ -25,19 +24,6 @@ enum SessionRefresh {
     ReauthenticationRequired,
     /// Something transient went wrong. The saved login is still good and must be kept.
     Failed(String),
-}
-
-enum GitHubLogin {
-    SignedOut,
-    Starting(PollJob<github::DeviceCode>),
-    Waiting {
-        challenge: github::DeviceCode,
-        job: Option<PollJob<Option<github::Tokens>>>,
-        started_at: Instant,
-        next_poll_at: Instant,
-    },
-    SignedIn,
-    Error(String),
 }
 
 /// What Confirm should retry from the `Error` screen.
@@ -431,13 +417,6 @@ pub struct App {
     /// Whether the streaming diagnostics panel is showing. Off by default - it covers the game and
     /// only means anything while something is being debugged.
     pub(crate) show_stream_stats: bool,
-    /// Set only by the in-stream report button. The shell consumes it after a clean frame.
-    diagnostic_capture_requested: bool,
-    github_login: GitHubLogin,
-    /// The shell owns the reporter; it consumes this token once after a successful device login.
-    github_login_ready: Option<github::Tokens>,
-    github_signout_requested: bool,
-    report_prelaunch_flush_requested: bool,
     /// Starred app ids, read once at startup. The catalog list is rebuilt on every repaint, so
     /// hitting the memory card there would be a file read per frame.
     pub(crate) favorites: std::collections::BTreeSet<String>,
@@ -610,15 +589,6 @@ impl App {
             tokens,
             last_refresh_attempt: None,
             show_stream_stats: false,
-            diagnostic_capture_requested: false,
-            github_login: if github::load().is_some() {
-                GitHubLogin::SignedIn
-            } else {
-                GitHubLogin::SignedOut
-            },
-            github_login_ready: None,
-            github_signout_requested: false,
-            report_prelaunch_flush_requested: false,
             link_keyframe_requests: 0,
             favorites: crate::gfn::favorites::ids(&favorite_games),
             favorite_games,
@@ -676,40 +646,6 @@ impl App {
         self.queue_job.is_some()
     }
 
-    pub(crate) fn take_diagnostic_capture_request(&mut self) -> bool {
-        std::mem::take(&mut self.diagnostic_capture_requested)
-    }
-    pub(crate) fn take_github_login(&mut self) -> Option<github::Tokens> {
-        self.github_login_ready.take()
-    }
-    pub(crate) fn take_github_signout(&mut self) -> bool {
-        std::mem::take(&mut self.github_signout_requested)
-    }
-    pub(crate) fn take_report_prelaunch_flush(&mut self) -> bool {
-        std::mem::take(&mut self.report_prelaunch_flush_requested)
-    }
-    pub(crate) fn github_report_status(&self) -> String {
-        match &self.github_login {
-            GitHubLogin::SignedOut => "GitHub: no conectado".into(),
-            GitHubLogin::Starting(_) => "GitHub: preparando código…".into(),
-            GitHubLogin::Waiting { challenge, .. } => format!(
-                "GitHub: abre {} y escribe {}",
-                challenge.verification_uri, challenge.user_code
-            ),
-            GitHubLogin::SignedIn => "GitHub: conectado; envío diferido activo".into(),
-            GitHubLogin::Error(error) => format!("GitHub: {error}"),
-        }
-    }
-    pub(crate) fn github_report_can_start(&self) -> bool {
-        matches!(
-            self.github_login,
-            GitHubLogin::SignedOut | GitHubLogin::Error(_)
-        )
-    }
-    pub(crate) fn github_report_is_signed_in(&self) -> bool {
-        matches!(self.github_login, GitHubLogin::SignedIn)
-    }
-
     pub(crate) fn is_loading_regions(&self) -> bool {
         self.regions_job.is_some()
     }
@@ -740,26 +676,6 @@ impl App {
             AppCommand::ConfirmExitSession => {
                 self.confirm_exit = false;
                 self.exit_session(current_state)?
-            }
-            AppCommand::StartGitHubReportsLogin => {
-                if matches!(
-                    self.github_login,
-                    GitHubLogin::SignedOut | GitHubLogin::Error(_)
-                ) {
-                    let client = self.http_client.clone();
-                    self.github_login =
-                        GitHubLogin::Starting(PollJob::Pending(tokio::spawn(async move {
-                            github::begin(&client).await
-                        })));
-                }
-                current_state
-            }
-            AppCommand::SignOutGitHubReports => {
-                github::clear();
-                self.github_login = GitHubLogin::SignedOut;
-                self.github_signout_requested = true;
-                self.status_note = Some("GitHub reports: sesión cerrada".to_owned());
-                current_state
             }
             AppCommand::SetLocale(locale) => {
                 crate::gfn::stream_prefs::set_ui_locale(locale);
@@ -840,7 +756,6 @@ impl App {
             }
             AppCommand::LaunchOnServer(zone_base_url) => {
                 self.server_picker_open = false;
-                self.report_prelaunch_flush_requested = true;
                 self.start_launch(current_state, zone_base_url, bearer_token, http_client)
             }
             AppCommand::LoadQueueStats => {
@@ -952,14 +867,6 @@ impl App {
             }
             AppCommand::ToggleStreamStats => {
                 self.show_stream_stats = !self.show_stream_stats;
-                current_state
-            }
-            AppCommand::SaveDiagnosticReport => {
-                if matches!(current_state, AppState::Streaming { .. }) {
-                    self.diagnostic_capture_requested = true;
-                    self.toolbar_expanded = false;
-                    self.status_note = Some("Preparing local diagnostic report…".to_owned());
-                }
                 current_state
             }
             AppCommand::ToggleToolbar => {
@@ -2681,7 +2588,6 @@ impl App {
 
     /// Per-frame housekeeping: advances whatever async step is in flight.
     pub async fn tick(&mut self) -> Result<()> {
-        self.advance_github_login().await;
         self.prune_covers();
         self.track_link_quality();
         self.sync_keyboard_state();
@@ -2891,84 +2797,6 @@ impl App {
             other => self.state = other,
         }
         Ok(())
-    }
-
-    async fn advance_github_login(&mut self) {
-        let state = std::mem::replace(&mut self.github_login, GitHubLogin::SignedOut);
-        self.github_login = match state {
-            GitHubLogin::Starting(PollJob::Pending(handle)) => match poll_job(handle).await {
-                PollJob::Pending(handle) => GitHubLogin::Starting(PollJob::Pending(handle)),
-                PollJob::Done(Ok(challenge)) => GitHubLogin::Waiting {
-                    started_at: Instant::now(),
-                    next_poll_at: Instant::now() + Duration::from_secs(challenge.interval),
-                    challenge,
-                    job: None,
-                },
-                PollJob::Done(Err(error)) => {
-                    GitHubLogin::Error(format!("no se pudo iniciar: {error}"))
-                }
-            },
-            GitHubLogin::Waiting {
-                challenge,
-                job,
-                started_at,
-                next_poll_at,
-            } => {
-                if Instant::now() > started_at + Duration::from_secs(challenge.expires_in) {
-                    GitHubLogin::Error("el código expiró; vuelve a intentarlo".into())
-                } else {
-                    let job = match job {
-                        Some(job) => Some(job),
-                        None if Instant::now() >= next_poll_at => {
-                            let client = self.http_client.clone();
-                            let code = challenge.device_code.clone();
-                            Some(PollJob::Pending(tokio::spawn(async move {
-                                github::poll(&client, &code).await
-                            })))
-                        }
-                        None => None,
-                    };
-                    match job {
-                        None => GitHubLogin::Waiting {
-                            challenge,
-                            job: None,
-                            started_at,
-                            next_poll_at,
-                        },
-                        Some(PollJob::Pending(handle)) => match poll_job(handle).await {
-                            PollJob::Pending(handle) => GitHubLogin::Waiting {
-                                challenge,
-                                job: Some(PollJob::Pending(handle)),
-                                started_at,
-                                next_poll_at,
-                            },
-                            PollJob::Done(Ok(None)) => GitHubLogin::Waiting {
-                                next_poll_at: Instant::now()
-                                    + Duration::from_secs(challenge.interval),
-                                challenge,
-                                job: None,
-                                started_at,
-                            },
-                            PollJob::Done(Ok(Some(tokens))) => match github::save(&tokens) {
-                                Ok(()) => {
-                                    self.github_login_ready = Some(tokens);
-                                    self.status_note=Some("GitHub conectado: los reportes se enviarán fuera del streaming".into());
-                                    GitHubLogin::SignedIn
-                                }
-                                Err(e) => GitHubLogin::Error(format!("no se pudo guardar: {e}")),
-                            },
-                            PollJob::Done(Err(error)) => {
-                                GitHubLogin::Error(format!("inicio de sesión falló: {error}"))
-                            }
-                        },
-                        Some(PollJob::Done(_)) => {
-                            GitHubLogin::Error("estado de inicio inválido".into())
-                        }
-                    }
-                }
-            }
-            other => other,
-        };
     }
 
     /// Drains a bounded number of signaling events per tick (rather than all of them) so a burst
