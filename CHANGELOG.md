@@ -5,6 +5,24 @@ All notable changes to OpenNOW Vita are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-09-20
+
+### Changed
+
+- OpenNOW Vita vuelve a centrarse exclusivamente en ser cliente de GeForce NOW.
+  No contiene FTP persistente, captura de pantalla, telemetría de sistema ni
+  envío automático de informes a GitHub.
+- Las herramientas de diagnóstico, administración y pruebas de toda la PS Vita
+  viven en el proyecto separado `Vita-System-Lab`; no se cargan ni se ejecutan
+  desde esta aplicación.
+- La versión de la burbuja de Vita se sincroniza con la versión publicada
+  (`00.61` / `0.6.1`).
+
+### Build
+
+- El flujo de GitHub Actions compila el VPK de esta versión etiquetada y lo
+  adjunta a su release.
+
 ## [0.6.0] - 2026-09-17
 
 Control rewrite, and the reason the last one could not be trusted: **the tests had never run.**

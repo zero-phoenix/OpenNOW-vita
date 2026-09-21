@@ -7,7 +7,7 @@ default-members = ["."]
 
 [package]
 name = "opennow-vita"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2024"
 license = "MPL-2.0"
 description = "Cliente homebrew no oficial de GeForce NOW para PlayStation Vita"
@@ -53,7 +53,7 @@ rtc-shared = { git = "https://github.com/Day-OS/rtc.git", branch = "vita" }
 title_id = "OPENNOWV0"
 title_name = "OpenNOW Vita"
 assets = "static"
-vita_mksfoex_flags = ["-s", "APP_VER=00.60"]
+vita_mksfoex_flags = ["-s", "APP_VER=00.61"]
 
 [profile.release]
 # Nothing tuned the release profile before. On armv7 these are typically worth 5-15% for build
