@@ -5,6 +5,26 @@ All notable changes to OpenNOW Vita are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] → v0.7.0-rc.1
+
+### Added (fases 1–3 de v0.7, rama feat/v0.7-ui-foundations)
+
+- **HUD de rendimiento durante el stream**: kbps, pérdida y RTT en overlay,
+  con historial en anillo y parser tolerante a basura (tests incluidos).
+- **Menú de pausa dentro del stream**: salida, estadísticas, teclado,
+  trackpad y controles sin abandonar la sesión.
+- **Tema compartido y modelo de foco**: navegación consistente por filas con
+  wrap y clamp (8 tests), base de toda la UI nueva.
+- **Pastilla de modo JUEGO|PC** visible en la interfaz.
+- i18n actualizado (es/en/fr/ru).
+
+### Verified
+
+- `opennow-core`: **98 pruebas** en verde (25 nuevas) — ejecutadas en host
+  Windows con `--target x86_64-pc-windows-msvc` y en CI (linux-gnu).
+- Nota: `cargo test` sin target explícito usa el target Vita del workspace y
+  falla sin el std cruzado; el testigo correcto es el target del host.
+
 ## [0.6.1] - 2026-09-20
 
 ### Changed
