@@ -8,5 +8,7 @@
 
 pub mod config;
 pub mod focus;
+pub mod hud;
 pub mod input;
+pub mod menu;
 pub mod protocol;

@@ -1,4 +1,6 @@
 pub mod fonts;
+pub mod hud;
+pub mod pause_menu;
 pub mod settings_menu;
 pub mod theme;
 pub mod ui;
@@ -456,6 +458,13 @@ pub struct App {
     /// Profile to toast about in the stream UI, set when the profile actually changes. The shell
     /// consumes it once per frame, mirroring how `flash_manual` reaches `flash_control_manual`.
     pub(crate) toast_profile: Option<crate::gfn::stream_prefs::ControlProfile>,
+    /// Whether the in-stream pause menu is open. While it is, pad navigation drives the menu,
+    /// not the (already ignored-during-streaming) UI state machine.
+    pub(crate) pause_menu_open: bool,
+    /// Pause-menu walker state (path + cursor). Navigation rules live in `opennow_core::menu`.
+    pub(crate) pause_menu: opennow_core::menu::MenuState,
+    /// Sampled metrics for the performance HUD; fed from the shell's tick, painted in stream.
+    pub(crate) hud: hud::HudState,
     pub(crate) key_shift: bool,
     pub(crate) key_ctrl: bool,
     pub(crate) key_alt: bool,
@@ -610,6 +619,9 @@ impl App {
             keyboard_shortcuts: false,
             flash_manual: false,
             toast_profile: None,
+            pause_menu_open: false,
+            pause_menu: opennow_core::menu::MenuState::new(),
+            hud: hud::HudState::default(),
             key_shift: false,
             key_ctrl: false,
             key_alt: false,
@@ -931,6 +943,55 @@ impl App {
             }
             AppCommand::SelectControlProfile(profile) => {
                 self.apply_control_profile(profile, "pill");
+                current_state
+            }
+            AppCommand::OpenPauseMenu => {
+                self.pause_menu_open = true;
+                self.pause_menu.reset();
+                // The keyboard would sit under the menu; its shortcuts belong to the game
+                // anyway while the player is in here.
+                if self.keyboard_open {
+                    self.keyboard_open = false;
+                    self.keyboard_shortcuts = false;
+                    self.release_keyboard_modifiers(&current_state);
+                }
+                current_state
+            }
+            AppCommand::ClosePauseMenu => {
+                self.pause_menu_open = false;
+                current_state
+            }
+            AppCommand::MenuActivateAt(index) => {
+                self.activate_pause_menu_row(index).await?;
+                current_state
+            }
+            AppCommand::MenuBitrateStep(delta) => {
+                let kbps = crate::gfn::stream_prefs::adjust_max_bitrate(delta);
+                // 0 = auto: the ceiling is withdrawn, and withdrawing means telling nobody -
+                // there is no "uncap" message, the peer just goes back to adapting.
+                if kbps > 0 {
+                    if let AppState::Streaming { peer, .. } = &current_state {
+                        peer.set_max_bitrate(kbps);
+                    }
+                }
+                current_state
+            }
+            AppCommand::MenuOpacityStep(delta) => {
+                crate::gfn::stream_prefs::adjust_hud_opacity(delta);
+                current_state
+            }
+            AppCommand::MenuRefreshStep(delta) => {
+                crate::gfn::stream_prefs::adjust_hud_refresh(delta);
+                current_state
+            }
+            AppCommand::ToggleHudFpsChart => {
+                let enabled = !crate::gfn::stream_prefs::hud_fps_chart();
+                crate::gfn::stream_prefs::set_hud_fps_chart(enabled);
+                current_state
+            }
+            AppCommand::ToggleHudBitrateChart => {
+                let enabled = !crate::gfn::stream_prefs::hud_bitrate_chart();
+                crate::gfn::stream_prefs::set_hud_bitrate_chart(enabled);
                 current_state
             }
             AppCommand::ToggleOverlayReveal => {
@@ -1834,6 +1895,58 @@ impl App {
         Ok(())
     }
 
+    /// Shared activation path for the pause menu - d-pad Confirm and a row tap both land here:
+    /// focus the row, activate it, run whatever it maps to, close if the row is an action.
+    /// Boxed because the follow-up commands re-enter `handle_command`.
+    async fn activate_pause_menu_row(&mut self, index: usize) -> Result<()> {
+        use opennow_core::menu::Activated;
+        self.pause_menu.set_cursor(pause_menu::tree(), index);
+        if let Activated::Leaf(id) = self.pause_menu.activate(pause_menu::tree()) {
+            let (commands, close) = pause_menu::activate(id);
+            for command in commands {
+                Box::pin(self.handle_command(command)).await?;
+            }
+            if close {
+                self.pause_menu_open = false;
+            }
+        }
+        Ok(())
+    }
+
+    /// Pad navigation while the pause menu is open. Swallows every input command: the menu is
+    /// a modal over the stream, and letting any direction leak past it would move a cursor
+    /// nobody can see.
+    async fn handle_pause_menu_input(&mut self, input: InputCommand) -> Result<()> {
+        match input {
+            InputCommand::MoveUp => self.pause_menu.move_cursor(pause_menu::tree(), false),
+            InputCommand::MoveDown => self.pause_menu.move_cursor(pause_menu::tree(), true),
+            InputCommand::Confirm => {
+                self.activate_pause_menu_row(self.pause_menu.cursor()).await?;
+            }
+            InputCommand::Back => {
+                if !self.pause_menu.back() {
+                    self.pause_menu_open = false;
+                }
+            }
+            InputCommand::MoveLeft | InputCommand::MoveRight => {
+                // Steppers only: Left/Right on any other row is ignored, not rebound - a
+                // toggle that flipped sideways would be a toggle you cannot see happening.
+                let dir: i32 = if matches!(input, InputCommand::MoveRight) {
+                    1
+                } else {
+                    -1
+                };
+                if let Some(id) = self.pause_menu.current_id(pause_menu::tree())
+                    && let Some(command) = pause_menu::step_command(id, dir)
+                {
+                    Box::pin(self.handle_command(command)).await?;
+                }
+            }
+            InputCommand::PrevTab | InputCommand::NextTab => {}
+        }
+        Ok(())
+    }
+
     async fn handle_input_command(
         &mut self,
         current_state: AppState,
@@ -1841,6 +1954,10 @@ impl App {
         bearer_token: Option<String>,
         http_client: Client,
     ) -> Result<AppState> {
+        if self.pause_menu_open {
+            self.handle_pause_menu_input(input).await?;
+            return Ok(current_state);
+        }
         if self.settings_open {
             self.handle_settings_input(input).await?;
             return Ok(current_state);

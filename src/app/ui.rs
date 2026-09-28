@@ -1,4 +1,5 @@
 use super::{App, AppState, CatalogFilter, CatalogSort};
+use super::{hud, pause_menu};
 use crate::app::theme::{
     ACCENT, ACCENT_DIM, BG_DEEP, BG_PANEL, BG_RAISED, BORDER, DANGER, TEXT_DIM, WARNING,
 };
@@ -174,6 +175,7 @@ enum StreamIcon {
     Controls,
     Clock,
     Globe,
+    Menu,
     Monitor,
     Person,
     Signal,
@@ -272,6 +274,17 @@ fn paint_stream_icon(
             let (dx, dy) = (rect.width() * 0.22, rect.height() * 0.32);
             painter.line_segment([egui::pos2(cx - dx, cy - dy), egui::pos2(cx + dx, cy)], s);
             painter.line_segment([egui::pos2(cx + dx, cy), egui::pos2(cx - dx, cy + dy)], s);
+        }
+        StreamIcon::Menu => {
+            // Hamburger: three bars wide enough to read as "menu" at 16 px, thick enough to
+            // survive the toolbar's translucent plate.
+            let s = egui::Stroke::new(1.8_f32, tint);
+            let (cx, cy) = (rect.center().x, rect.center().y);
+            let (dx, dy) = (rect.width() * 0.26, rect.height() * 0.22);
+            for row in -1..=1 {
+                let y = cy + row as f32 * dy;
+                painter.line_segment([egui::pos2(cx - dx, y), egui::pos2(cx + dx, y)], s);
+            }
         }
         StreamIcon::Controls => {
             // Gamepad icon: outer rounded rectangle body with d-pad cross and action buttons
@@ -505,146 +518,6 @@ fn stream_icon_button(ui: &mut egui::Ui, icon: StreamIcon, tint: egui::Color32) 
     response
 }
 
-/// Pulls a `key:value` token (e.g. `"kbps:4200"`) out of the peer's stats line.
-fn stat_token<'a>(note: &'a str, key: &str) -> Option<&'a str> {
-    note.split_whitespace()
-        .find_map(|tok| tok.strip_prefix(key))
-}
-
-/// FPS color thresholds, loosely matching GeForce NOW's own overlay (green/yellow/red).
-fn fps_color(fps: f32) -> egui::Color32 {
-    if fps >= 55.0 {
-        egui::Color32::from_rgb(0x4c, 0xd9, 0x64)
-    } else if fps >= 30.0 {
-        egui::Color32::from_rgb(0xe8, 0xc1, 0x3a)
-    } else {
-        DANGER
-    }
-}
-
-/// The diagnostics bar: just the FPS readout and its sparkline, on a backing plate.
-///
-/// Hidden unless asked for. Deliberately terse - this sits over live video, and a wall of
-/// counters only matters while something is being actively debugged (use the log for that).
-fn stream_stats_panel(
-    ui: &mut egui::Ui,
-    screen_width: f32,
-    note: &str,
-    fps_history: &std::collections::VecDeque<f32>,
-) {
-    let label_font = egui::FontId::proportional(9.5);
-    let value_font = egui::FontId::monospace(9.5);
-    let extra_font = egui::FontId::monospace(8.0);
-
-    let current_fps = fps_history.back().copied().unwrap_or(0.0);
-    let kbps = stat_token(note, "kbps:").unwrap_or("-");
-    let rtt = stat_token(note, "rtt:").unwrap_or("-");
-    let jit = stat_token(note, "jit:")
-        .and_then(|s| s.strip_suffix("ms"))
-        .unwrap_or("-");
-    let dec = stat_token(note, "dec:")
-        .and_then(|s| s.strip_suffix("ms"))
-        .unwrap_or("-");
-    let drop = stat_token(note, "drop:").unwrap_or("0");
-    let loss = stat_token(note, "loss:")
-        .and_then(|s| s.strip_suffix('%'))
-        .unwrap_or("0");
-    let loss_val: f32 = loss.parse().unwrap_or(0.0);
-    let drop_val: f32 = drop.parse().unwrap_or(0.0);
-
-    let graph_size = egui::vec2(44.0, 12.0);
-    let padding = egui::vec2(10.0, 4.0);
-    let gap = 5.0;
-
-    let fps_text = format!("{current_fps:.0}");
-    let fps_galley =
-        ui.fonts(|f| f.layout_no_wrap(fps_text, value_font.clone(), fps_color(current_fps)));
-    let fps_label_galley =
-        ui.fonts(|f| f.layout_no_wrap("FPS".to_owned(), label_font.clone(), TEXT_DIM));
-    // The input line is here on purpose: a "the controls don't work" report can now be checked
-    // against what the router actually decided, instead of guessed at from the source.
-    let input_line = crate::input::stats::line();
-    let extra_text = format!(
-        "{kbps} kbps  |  {rtt} ms ping  |  {jit} ms jitter  |  {dec} ms decode  |  {loss}% perdida  |  {drop}/s drop  |  {input_line}"
-    );
-    let extra_color = if loss_val >= 2.0 || drop_val >= 1.0 {
-        DANGER
-    } else {
-        TEXT_DIM
-    };
-    let extra_galley = ui.fonts(|f| f.layout_no_wrap(extra_text, extra_font.clone(), extra_color));
-
-    let content_height = graph_size.y.max(fps_galley.size().y);
-
-    // Full-width strip flush against the bottom edge, not a floating box.
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(screen_width, content_height + padding.y * 2.0),
-        egui::Sense::hover(),
-    );
-    if !ui.is_rect_visible(rect) {
-        return;
-    }
-
-    let painter = ui.painter();
-    painter.rect_filled(
-        rect,
-        0.0,
-        egui::Color32::from_rgba_unmultiplied(10, 10, 10, 210),
-    );
-
-    let mut x = rect.min.x + padding.x;
-    let top_y = rect.min.y + padding.y;
-
-    // "FPS 60" readout, color-coded like the reference GFN overlay.
-    let label_y = top_y + (content_height - fps_label_galley.size().y) / 2.0;
-    painter.galley(egui::pos2(x, label_y), fps_label_galley.clone(), TEXT_DIM);
-    x += fps_label_galley.size().x + 3.0;
-    let value_y = top_y + (content_height - fps_galley.size().y) / 2.0;
-    painter.galley(
-        egui::pos2(x, value_y),
-        fps_galley.clone(),
-        fps_color(current_fps),
-    );
-    x += fps_galley.size().x + gap;
-
-    // Sparkline of recent FPS samples.
-    let graph_rect = egui::Rect::from_min_size(egui::pos2(x, top_y), graph_size);
-    painter.rect_filled(
-        graph_rect,
-        3.0,
-        egui::Color32::from_rgba_unmultiplied(255, 255, 255, 12),
-    );
-    if fps_history.len() >= 2 {
-        let max_fps = fps_history
-            .iter()
-            .copied()
-            .fold(1.0_f32, f32::max)
-            .max(60.0);
-        let n = fps_history.len();
-        let points: Vec<egui::Pos2> = fps_history
-            .iter()
-            .enumerate()
-            .map(|(i, &v)| {
-                let t = i as f32 / (n - 1) as f32;
-                let norm = (v / max_fps).clamp(0.0, 1.0);
-                egui::pos2(
-                    graph_rect.min.x + t * graph_rect.width(),
-                    graph_rect.max.y - norm * graph_rect.height(),
-                )
-            })
-            .collect();
-        painter.add(egui::Shape::line(
-            points,
-            egui::Stroke::new(1.0_f32, fps_color(current_fps)),
-        ));
-    }
-    x += graph_size.x + gap;
-
-    // Bitrate, latency and packet loss: the numbers that actually matter for stream quality.
-    // Loss turns red past 2% since that's where it starts showing up as visible artifacts.
-    let extra_y = top_y + (content_height - extra_galley.size().y) / 2.0;
-    painter.galley(egui::pos2(x, extra_y), extra_galley, extra_color);
-}
 
 const STREAM_UI_RECTS: &str = "stream_ui_rects";
 
@@ -660,7 +533,7 @@ pub(crate) fn stream_ui_rects(ctx: &egui::Context) -> Vec<egui::Rect> {
 }
 
 /// Claims `rect` for the client UI for the rest of this frame.
-fn reserve_stream_touch(ctx: &egui::Context, rect: egui::Rect) {
+pub(crate) fn reserve_stream_touch(ctx: &egui::Context, rect: egui::Rect) {
     ctx.data_mut(|data| {
         data.get_temp_mut_or_default::<Vec<egui::Rect>>(egui::Id::new(STREAM_UI_RECTS))
             .push(rect)
@@ -1013,8 +886,24 @@ pub fn build_ui(ctx: &egui::Context, app: &App) -> Vec<AppCommand> {
                 app.battery,
                 Some(*session_start),
                 app.membership_tier.as_deref(),
+                app.pause_menu_open,
+                &app.hud,
             ) {
                 commands.push(cmd);
+            }
+            // The pause menu paints after the screen so it sits above video, toolbar and
+            // pill alike; its rows reserve their own touches.
+            if app.pause_menu_open {
+                commands.extend(pause_menu::paint(
+                    ctx,
+                    &i18n,
+                    &app.pause_menu,
+                    &pause_menu::PauseView {
+                        stats_on: app.show_stream_stats,
+                        keyboard_open: app.keyboard_open,
+                        trackpad_on: app.mouse_trackpad_enabled,
+                    },
+                ));
             }
         }
         AppState::Error { message, code, .. } => error_screen(ctx, &i18n, message, *code),
@@ -1711,7 +1600,7 @@ fn settings_chip_choice(
     command
 }
 
-fn battery_color(battery: crate::power::BatteryStatus) -> egui::Color32 {
+pub(crate) fn battery_color(battery: crate::power::BatteryStatus) -> egui::Color32 {
     if battery.charging {
         ACCENT
     } else if battery.is_critical() {
@@ -4251,6 +4140,8 @@ fn streaming_screen(
     battery: Option<crate::power::BatteryStatus>,
     session_start: Option<std::time::Instant>,
     membership_tier: Option<&str>,
+    pause_menu_open: bool,
+    hud: &crate::app::hud::HudState,
 ) -> Option<AppCommand> {
     let mut command = None;
 
@@ -4291,7 +4182,9 @@ fn streaming_screen(
         // Rebuilt every frame: a control that stops being drawn must stop claiming its touches.
         clear_stream_touch_reservations(ui.ctx());
 
-        if has_video && crate::gfn::stream_prefs::pc_overlay_enabled() {
+        // The pause menu replaces the overlay while it is open: two different touch languages
+        // stacked on the same screen is how a tap meant for one lands in the other.
+        if has_video && !pause_menu_open && crate::gfn::stream_prefs::pc_overlay_enabled() {
             paint_pc_overlay(ui, crate::gfn::stream_prefs::input_config(true));
         }
 
@@ -4381,6 +4274,18 @@ fn streaming_screen(
                 ui.spacing_mut().item_spacing.x = 4.0;
 
                 if toolbar_expanded {
+                    // 0. Pause menu: everything below also lives inside it, one tap deeper.
+                    let menu_open = pause_menu_open;
+                    let menu_button = stream_icon_button(
+                        ui,
+                        StreamIcon::Menu,
+                        if menu_open { ACCENT } else { TEXT_DIM },
+                    );
+                    reserve_stream_touch(ui.ctx(), menu_button.rect);
+                    if menu_button.clicked() && command.is_none() {
+                        command = Some(AppCommand::OpenPauseMenu);
+                    }
+
                     // 1. Power (Exit)
                     let power = stream_icon_button(ui, StreamIcon::Power, DANGER);
                     reserve_stream_touch(ui.ctx(), power.rect);
@@ -4465,12 +4370,12 @@ fn streaming_screen(
             });
         });
 
-        if show_stats && let Some(note) = status_note {
-            egui::Area::new(egui::Id::new("stream_stats_panel_area"))
-                .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(0.0, 0.0))
+        if show_stats {
+            egui::Area::new(egui::Id::new("stream_hud_area"))
+                .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(8.0, -8.0))
                 .interactable(false)
                 .show(ctx, |ui| {
-                    stream_stats_panel(ui, ctx.screen_rect().width(), note, fps_history);
+                    hud::paint_hud(ui, i18n, hud, fps_history, battery);
                 });
         }
     });

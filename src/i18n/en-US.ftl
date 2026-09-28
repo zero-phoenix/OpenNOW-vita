@@ -374,3 +374,37 @@ stream-mode-toast-game = GAME MODE
 stream-mode-toast-game-hint = Every button reaches the game · key strip at the top
 stream-mode-toast-pc = PC MODE
 stream-mode-toast-pc-hint = Sticks = mouse · on-screen keyboard from the toolbar
+
+# Pause menu (in-stream)
+menu-title = MENU
+menu-continue = Continue
+menu-video = Video
+menu-panel = Panel
+menu-controls = Controls
+menu-quit = Quit
+menu-bitrate = Bitrate limit
+menu-stats = Performance panel
+menu-opacity = Panel opacity
+menu-refresh = Panel refresh
+menu-fps-chart = FPS chart
+menu-bitrate-chart = Bitrate chart
+menu-timer = Session timer
+menu-profile = Control profile
+menu-keyboard = On-screen keyboard
+menu-trackpad = Touch trackpad
+menu-overlay = PC overlay
+menu-autofade = Auto dimming
+menu-triggers = L2/R2 and L3/R3 settings
+menu-footer = X accept · O back · ◀ ▶ adjust
+
+# Performance HUD
+hud-title = PERFORMANCE
+hud-section-video = VIDEO
+hud-section-net = NETWORK
+hud-fps = FPS
+hud-bitrate = Bitrate
+hud-decode = Decode
+hud-ping = Ping
+hud-jitter = Jitter
+hud-loss = Loss
+hud-drop = Drops

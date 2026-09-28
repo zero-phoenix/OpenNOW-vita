@@ -517,6 +517,15 @@ pub async fn run(mut app: App) -> Result<()> {
             crate::app::ui::flash_profile_toast(start_time.elapsed().as_secs_f64(), profile);
         }
 
+        // The HUD parses the peer's stats line at its own refresh interval, never per frame
+        // (megaplan H2's budget). The tick owns `&mut app`, the paint only reads.
+        if app.show_stream_stats && matches!(app.state, crate::app::AppState::Streaming { .. }) {
+            app.hud.sample_stats(
+                app.status_note.as_deref(),
+                crate::gfn::stream_prefs::hud_refresh_ms(),
+            );
+        }
+
         let build_ui_started_at = Instant::now();
         let mut ui_commands = Vec::new();
         let full_output = egui_ctx.run(raw_input, |ctx| {

@@ -72,6 +72,23 @@ pub struct AppSettings {
     /// profile, where the overlay *is* the interface.
     #[serde(default = "default_true")]
     pub overlay_autofade: bool,
+    /// Performance HUD (v0.7): panel paint opacity, in percent.
+    #[serde(default = "default_hud_opacity_percent")]
+    pub hud_opacity_percent: u8,
+    /// Performance HUD: how often the panel re-reads the peer's stats line, in ms. The panel
+    /// repaints with the stream either way; this throttles parsing and string formatting.
+    #[serde(default = "default_hud_refresh_ms")]
+    pub hud_refresh_ms: u16,
+    /// Whether the HUD draws its FPS sparkline.
+    #[serde(default = "default_true")]
+    pub hud_fps_chart: bool,
+    /// Whether the HUD draws its bitrate sparkline.
+    #[serde(default = "default_true")]
+    pub hud_bitrate_chart: bool,
+    /// Player-requested bitrate ceiling in kbps, or 0 for "let the peer adapt" (the default
+    /// and the behaviour every release before this had).
+    #[serde(default)]
+    pub max_bitrate_kbps: u32,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -169,6 +186,14 @@ fn default_overlay_sensitivity_percent() -> u16 {
     OverlaySensitivity::default().percent()
 }
 
+fn default_hud_opacity_percent() -> u8 {
+    70
+}
+
+fn default_hud_refresh_ms() -> u16 {
+    500
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -194,6 +219,11 @@ impl Default for AppSettings {
             overlay_sensitivity_percent: default_overlay_sensitivity_percent(),
             force_direct_nvidia_login: default_true(),
             overlay_autofade: default_true(),
+            hud_opacity_percent: default_hud_opacity_percent(),
+            hud_refresh_ms: default_hud_refresh_ms(),
+            hud_fps_chart: true,
+            hud_bitrate_chart: true,
+            max_bitrate_kbps: 0,
         }
     }
 }
@@ -851,6 +881,79 @@ pub fn overlay_revealed() -> bool {
 
 pub fn set_overlay_revealed(revealed: bool) {
     update_settings(|s| s.overlay_revealed = revealed);
+}
+
+// --- Performance HUD preferences (v0.7). Steppers, not free values: each has a short list of
+// steps the pause menu walks with Left/Right, so the setting is judged by eye in a few presses
+// instead of scrolled through a hundred notches.
+
+pub fn hud_opacity_percent() -> u8 {
+    with_cached_settings(|s| s.hud_opacity_percent)
+}
+
+pub fn hud_refresh_ms() -> u16 {
+    with_cached_settings(|s| s.hud_refresh_ms)
+}
+
+pub fn hud_fps_chart() -> bool {
+    with_cached_settings(|s| s.hud_fps_chart)
+}
+
+pub fn hud_bitrate_chart() -> bool {
+    with_cached_settings(|s| s.hud_bitrate_chart)
+}
+
+pub fn max_bitrate_kbps() -> u32 {
+    with_cached_settings(|s| s.max_bitrate_kbps)
+}
+
+pub const HUD_OPACITY_STEPS: [u8; 4] = [30, 50, 70, 100];
+pub const HUD_REFRESH_STEPS: [u16; 3] = [250, 500, 1000];
+/// 0 kbps = "auto": no ceiling is forced on the peer, which is the shipped default.
+pub const MAX_BITRATE_STEPS: [u32; 6] = [0, 5_000, 10_000, 15_000, 20_000, 25_000];
+
+/// Walks `steps` one slot in `delta`'s direction starting from `current`, wrapping at both
+/// ends. `current` need not be on a step: the nearest slot below it is the anchor, so a value
+/// written by an older version still lands somewhere sensible.
+fn step_cycle<T: PartialOrd + Copy>(steps: &[T], current: T, delta: i32) -> T {
+    if steps.is_empty() {
+        return current;
+    }
+    let mut anchor = 0;
+    for (i, &step) in steps.iter().enumerate() {
+        if step <= current || i == 0 {
+            anchor = i;
+        }
+    }
+    let len = steps.len() as i32;
+    let next = ((anchor as i32 + delta.signum()) % len + len) % len;
+    steps[next as usize]
+}
+
+pub fn adjust_hud_opacity(delta: i32) -> u8 {
+    let next = step_cycle(&HUD_OPACITY_STEPS, hud_opacity_percent(), delta);
+    update_settings(|s| s.hud_opacity_percent = next);
+    next
+}
+
+pub fn adjust_hud_refresh(delta: i32) -> u16 {
+    let next = step_cycle(&HUD_REFRESH_STEPS, hud_refresh_ms(), delta);
+    update_settings(|s| s.hud_refresh_ms = next);
+    next
+}
+
+pub fn adjust_max_bitrate(delta: i32) -> u32 {
+    let next = step_cycle(&MAX_BITRATE_STEPS, max_bitrate_kbps(), delta);
+    update_settings(|s| s.max_bitrate_kbps = next);
+    next
+}
+
+pub fn set_hud_fps_chart(enabled: bool) {
+    update_settings(|s| s.hud_fps_chart = enabled);
+}
+
+pub fn set_hud_bitrate_chart(enabled: bool) {
+    update_settings(|s| s.hud_bitrate_chart = enabled);
 }
 
 /// How opaque the overlay's on-screen buttons/sliders are drawn.

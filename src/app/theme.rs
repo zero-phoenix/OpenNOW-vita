@@ -24,16 +24,10 @@ pub const TEXT_DIM: Color32 = Color32::from_rgb(0xa0, 0xa4, 0xac);
 pub const DANGER: Color32 = Color32::from_rgb(0xff, 0x6b, 0x6b);
 pub const WARNING: Color32 = Color32::from_rgb(0xff, 0xc1, 0x07);
 
-/// How a displayed value is judged. The grade picks the colour, not the call site, so a metric
-/// judged "good" is the same green in the stats panel, in the pause menu and anywhere else that
-/// reports a value (Halyard's `ui::theme::Grade`, re-graded onto the OpenNOW palette).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Grade {
-    Good,
-    Warn,
-    Bad,
-    Neutral,
-}
+/// How a displayed value is judged. Defined in `opennow_core::hud` beside the metric
+/// thresholds, so the HUD and any future screen cannot disagree; re-exported here so paint
+/// sites need one import for the whole visual language.
+pub use opennow_core::hud::Grade;
 
 /// The colour for a grade: green/amber/red from the existing status palette, dim text for
 /// values that carry no judgement.
