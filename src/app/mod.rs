@@ -962,10 +962,6 @@ impl App {
                 }
                 current_state
             }
-            AppCommand::ClosePauseMenu => {
-                self.pause_menu_open = false;
-                current_state
-            }
             AppCommand::MenuActivateAt(index) => {
                 self.activate_pause_menu_row(index).await?;
                 current_state

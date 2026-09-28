@@ -104,8 +104,6 @@ pub enum AppCommand {
     SelectControlProfile(crate::gfn::stream_prefs::ControlProfile),
     /// Opens the in-stream pause menu (the paginated overlay over the live stream).
     OpenPauseMenu,
-    /// Closes the pause menu.
-    ClosePauseMenu,
     /// Touch activation of pause-menu row `index`; the handler focuses it, activates it, and
     /// applies whatever that row's id maps to.
     MenuActivateAt(usize),

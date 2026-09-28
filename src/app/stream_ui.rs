@@ -17,7 +17,6 @@ use crate::input::AppCommand;
 
 pub(crate) enum StreamIcon {
     Keyboard,
-    Stop,
     Stats,
     Power,
     Mouse,
@@ -69,10 +68,6 @@ pub(crate) fn paint_stream_icon(
                 0.5,
                 tint,
             );
-        }
-        // The universal stop mark: a filled square.
-        StreamIcon::Stop => {
-            painter.rect_filled(rect.shrink(2.0), 1.5, tint);
         }
         // Three rising bars - a chart, for the counters.
         StreamIcon::Stats => {
