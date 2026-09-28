@@ -1,5 +1,6 @@
 pub mod fonts;
 pub mod settings_menu;
+pub mod theme;
 pub mod ui;
 
 use crate::gfn::auth::{self, AuthTokens, DeviceCodeChallenge, DevicePollOutcome, GfnUser};
@@ -452,6 +453,9 @@ pub struct App {
     /// Set when the control profile changes, so the renderer can flash the manual once. Cleared
     /// by the renderer after it acts on it.
     pub(crate) flash_manual: bool,
+    /// Profile to toast about in the stream UI, set when the profile actually changes. The shell
+    /// consumes it once per frame, mirroring how `flash_manual` reaches `flash_control_manual`.
+    pub(crate) toast_profile: Option<crate::gfn::stream_prefs::ControlProfile>,
     pub(crate) key_shift: bool,
     pub(crate) key_ctrl: bool,
     pub(crate) key_alt: bool,
@@ -605,6 +609,7 @@ impl App {
             keyboard_open: false,
             keyboard_shortcuts: false,
             flash_manual: false,
+            toast_profile: None,
             key_shift: false,
             key_ctrl: false,
             key_alt: false,
@@ -644,6 +649,20 @@ impl App {
 
     pub(crate) fn is_loading_queue_stats(&self) -> bool {
         self.queue_job.is_some()
+    }
+
+    /// Applies a control-profile change from any of its sources (pill, Select button, settings):
+    /// persists it, flashes the control manual and queues the mode toast. Same-profile requests
+    /// are ignored, so resting a thumb on the pill's active half cannot reflash anything.
+    fn apply_control_profile(&mut self, profile: crate::gfn::stream_prefs::ControlProfile, source: &str) {
+        use crate::gfn::stream_prefs;
+        if stream_prefs::control_profile() == profile {
+            return;
+        }
+        stream_prefs::set_control_profile(profile);
+        self.flash_manual = true;
+        self.toast_profile = Some(profile);
+        crate::log_info!("control profile -> {} (source={})", profile.key(), source);
     }
 
     pub(crate) fn is_loading_regions(&self) -> bool {
@@ -896,8 +915,7 @@ impl App {
                 current_state
             }
             AppCommand::SetControlProfile(profile) => {
-                crate::gfn::stream_prefs::set_control_profile(profile);
-                self.flash_manual = true;
+                self.apply_control_profile(profile, "settings");
                 current_state
             }
             AppCommand::ToggleControlProfile => {
@@ -906,10 +924,13 @@ impl App {
                     ControlProfile::Game => ControlProfile::Desktop,
                     ControlProfile::Desktop => ControlProfile::Game,
                 };
-                crate::gfn::stream_prefs::set_control_profile(next);
                 // Flash the manual: switching profile is the one moment you might not remember
                 // what just changed under your thumbs.
-                self.flash_manual = true;
+                self.apply_control_profile(next, "select");
+                current_state
+            }
+            AppCommand::SelectControlProfile(profile) => {
+                self.apply_control_profile(profile, "pill");
                 current_state
             }
             AppCommand::ToggleOverlayReveal => {

@@ -367,3 +367,10 @@ settings-overlay-autofade-heading = Приглушать полосу без к�
 settings-overlay-autofade-desc = В игровом профиле полоса клавиш тускнеет до 35 % через шесть секунд без касания и сразу возвращается при касании экрана. Всегда видна, но не мешает картинке.
 settings-control-profile-game = Игра
 settings-control-profile-desktop = Рабочий стол
+# Пилюля режима ИГРА|ПК и тост смены профиля
+stream-mode-pill-game = ИГРА
+stream-mode-pill-pc = ПК
+stream-mode-toast-game = РЕЖИМ ИГРЫ
+stream-mode-toast-game-hint = Все кнопки идут в игру · полоса клавиш сверху
+stream-mode-toast-pc = РЕЖИМ ПК
+stream-mode-toast-pc-hint = Стики = мышь · экранная клавиатура из панели

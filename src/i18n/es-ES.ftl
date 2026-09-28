@@ -367,3 +367,10 @@ settings-overlay-autofade-heading = Atenuar la tira al no usarla
 settings-overlay-autofade-desc = En el modo Juego, la tira de teclas baja al 35 % tras seis segundos sin tocarla y vuelve al instante al tocar la pantalla. Siempre visible, pero sin competir con la imagen.
 settings-control-profile-game = Juego
 settings-control-profile-desktop = Escritorio
+# Píldora de modo JUEGO|PC y toast de cambio de perfil
+stream-mode-pill-game = JUEGO
+stream-mode-pill-pc = PC
+stream-mode-toast-game = MODO JUEGO
+stream-mode-toast-game-hint = Todos los botones van al juego · tira de teclas arriba
+stream-mode-toast-pc = MODO PC
+stream-mode-toast-pc-hint = Sticks = ratón · teclado en pantalla desde la barra

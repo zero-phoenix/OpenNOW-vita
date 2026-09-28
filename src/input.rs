@@ -99,6 +99,9 @@ pub enum AppCommand {
     SetControlProfile(crate::gfn::stream_prefs::ControlProfile),
     /// Swaps to the other control profile, from the on-screen switch.
     ToggleControlProfile,
+    /// Selects one control profile explicitly, from the JUEGO|PC pill's tapped half. A no-op
+    /// when that profile is already active, so resting a thumb on the pill cannot flash it.
+    SelectControlProfile(crate::gfn::stream_prefs::ControlProfile),
     /// Shows or hides everything on the overlay except the eye.
     ToggleOverlayReveal,
     /// Opens the on-screen keyboard's Windows-shortcut page.

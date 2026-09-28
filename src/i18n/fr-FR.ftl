@@ -367,3 +367,10 @@ settings-overlay-autofade-heading = Attenuer la bande inactive
 settings-overlay-autofade-desc = En profil Jeu, la bande de touches descend a 35 % apres six secondes sans contact et revient des que vous touchez l'ecran. Toujours visible, sans gener l'image.
 settings-control-profile-game = Jeu
 settings-control-profile-desktop = Bureau
+# Pilule de mode JEU|PC et toast de changement de profil
+stream-mode-pill-game = JEU
+stream-mode-pill-pc = PC
+stream-mode-toast-game = MODE JEU
+stream-mode-toast-game-hint = Chaque bouton atteint le jeu · bande de touches en haut
+stream-mode-toast-pc = MODE PC
+stream-mode-toast-pc-hint = Sticks = souris · clavier a l'ecran depuis la barre

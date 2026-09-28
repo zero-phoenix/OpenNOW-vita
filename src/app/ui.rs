@@ -1,7 +1,11 @@
 use super::{App, AppState, CatalogFilter, CatalogSort};
+use crate::app::theme::{
+    ACCENT, ACCENT_DIM, BG_DEEP, BG_PANEL, BG_RAISED, BORDER, DANGER, TEXT_DIM, WARNING,
+};
 use crate::gfn::auth::GfnUser;
 use crate::gfn::catalog::GameSummary;
 use crate::gfn::covers::{CoverSize, CoverSnapshot, CoverStore};
+use crate::gfn::stream_prefs::ControlProfile;
 use crate::i18n::{I18n, arg_string};
 use crate::input::AppCommand;
 use fluent_bundle::FluentArgs;
@@ -11,14 +15,6 @@ use std::sync::Arc;
 /// Builds the egui UI for the current frame and returns any commands produced by widget
 /// interaction (buttons etc.) so the caller can feed them back through `App::handle_command`.
 
-const ACCENT: egui::Color32 = egui::Color32::from_rgb(0x76, 0xb9, 0x00);
-const BG_DEEP: egui::Color32 = egui::Color32::from_rgb(0x00, 0x00, 0x00);
-const BG_PANEL: egui::Color32 = egui::Color32::from_rgb(0x0a, 0x0a, 0x0a);
-const BG_RAISED: egui::Color32 = egui::Color32::from_rgb(0x16, 0x16, 0x16);
-const BORDER: egui::Color32 = egui::Color32::from_rgb(0x22, 0x22, 0x22);
-const TEXT_DIM: egui::Color32 = egui::Color32::from_rgb(0xa0, 0xa4, 0xac);
-const DANGER: egui::Color32 = egui::Color32::from_rgb(0xff, 0x6b, 0x6b);
-const WARNING: egui::Color32 = egui::Color32::from_rgb(0xff, 0xc1, 0x07);
 
 /// Width of the left-hand title list.
 const LIST_WIDTH: f32 = 250.0;
@@ -1862,6 +1858,199 @@ pub(crate) fn flash_control_manual(now: f64) {
 
 fn manual_is_flashing(now: f64) -> bool {
     now < f64::from_bits(MANUAL_UNTIL.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// The mode toast: a brief, unmistakable answer to "what did the pill just do", for players who
+/// tapped it without looking at the pill itself. Same lifetime pattern as the manual flash.
+static TOAST_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// 0 = game, 1 = desktop; matches `ControlProfile` order.
+static TOAST_PROFILE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+const TOAST_TOTAL_SECS: f64 = 2.5;
+const TOAST_FADE_SECS: f64 = 0.5;
+
+/// Called from the shell when the profile actually changed, mirroring `flash_control_manual`.
+pub(crate) fn flash_profile_toast(now: f64, profile: ControlProfile) {
+    TOAST_PROFILE.store(
+        match profile {
+            ControlProfile::Game => 0,
+            ControlProfile::Desktop => 1,
+        },
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    TOAST_UNTIL.store(
+        (now + TOAST_TOTAL_SECS).to_bits(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+fn toast_state(now: f64) -> Option<(ControlProfile, u8)> {
+    let until = f64::from_bits(TOAST_UNTIL.load(std::sync::atomic::Ordering::Relaxed));
+    if now >= until {
+        return None;
+    }
+    let remaining = until - now;
+    let alpha = ((remaining / TOAST_FADE_SECS).clamp(0.0, 1.0) * 255.0) as u8;
+    let profile = match TOAST_PROFILE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => ControlProfile::Desktop,
+        _ => ControlProfile::Game,
+    };
+    Some((profile, alpha))
+}
+
+/// The always-reachable JUEGO|PC switch. One tap on the half you want; the active half is
+/// accent-filled, the idle half dims with the same idle clock as the overlay so "always visible"
+/// costs the picture as little as the key strip does. Its rect is reserved like the toolbar's,
+/// so a tap lands on the pill and never on the game.
+///
+/// The halves are allocated with `Sense::click` and painted by hand, like `stream_icon_button`:
+/// a plain `Frame::show` only senses hover, and a pill that never fires is worse than no pill.
+fn mode_pill(ctx: &egui::Context, i18n: &I18n) -> Option<AppCommand> {
+    use crate::gfn::stream_prefs as prefs;
+
+    let profile = prefs::control_profile();
+    let now = ctx.input(|input| input.time);
+    // Same idle clock and floor as the game profile's key strip: dimmed is still readable,
+    // because knowing which mode you are in is the pill's whole job.
+    let faded = idle_seconds(now) > OVERLAY_FADE_AFTER;
+    let body_alpha = if faded { 89 } else { 216 };
+    let dim_alpha = if faded { 70 } else { 160 };
+
+    let mut command = None;
+
+    egui::Area::new(egui::Id::new("stream_mode_pill"))
+        // Below the clock/battery pill's anchor row, so the two right-top pills stack instead of
+        // overlap whether or not the session timer is on.
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-8.0, 40.0))
+        .show(ctx, |ui| {
+            let halves = [
+                (ControlProfile::Game, "🎮", i18n.text("stream-mode-pill-game")),
+                (ControlProfile::Desktop, "🖱", i18n.text("stream-mode-pill-pc")),
+            ];
+            let half_widths: Vec<f32> = halves
+                .iter()
+                .map(|&(_, emoji, ref label)| {
+                    pill_half_width(ui, emoji, label.as_ref())
+                })
+                .collect();
+            let height = 24.0;
+            let mut origin = ui.cursor().min;
+            for (i, &(half, emoji, ref label)) in halves.iter().enumerate() {
+                let rect = egui::Rect::from_min_size(
+                    origin,
+                    egui::vec2(half_widths[i], height),
+                );
+                origin.x += half_widths[i];
+                let response = ui.allocate_rect(rect, egui::Sense::click());
+                reserve_stream_touch(ui.ctx(), response.rect);
+                if response.clicked() && command.is_none() {
+                    command = Some(AppCommand::SelectControlProfile(half));
+                }
+                let active = profile == half;
+                let painter = ui.painter();
+                if active {
+                    painter.rect_filled(rect, 6.0, ACCENT_DIM);
+                    painter.rect_stroke(
+                        rect,
+                        6u8,
+                        egui::Stroke::new(1.5_f32, ACCENT),
+                        egui::StrokeKind::Inside,
+                    );
+                } else {
+                    painter.rect_filled(
+                        rect,
+                        6.0,
+                        egui::Color32::from_black_alpha(body_alpha),
+                    );
+                }
+                let emoji_color = if active {
+                    ACCENT
+                } else {
+                    egui::Color32::from_rgba_unmultiplied(0xa0, 0xa4, 0xac, dim_alpha)
+                };
+                let text_color = if active {
+                    egui::Color32::WHITE
+                } else {
+                    egui::Color32::from_rgba_unmultiplied(0xa0, 0xa4, 0xac, dim_alpha)
+                };
+                let emoji_rect = egui::Rect::from_min_max(
+                    egui::pos2(rect.min.x + 8.0, rect.center().y - 7.0),
+                    egui::pos2(rect.min.x + 22.0, rect.center().y + 7.0),
+                );
+                painter.text(
+                    emoji_rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    emoji,
+                    egui::FontId::proportional(12.0),
+                    emoji_color,
+                );
+                let text_pos = egui::pos2(emoji_rect.max.x + 4.0, rect.center().y);
+                painter.text(
+                    text_pos,
+                    egui::Align2::LEFT_CENTER,
+                    label.as_ref(),
+                    egui::FontId::proportional(11.0),
+                    text_color,
+                );
+            }
+        });
+
+    command
+}
+
+/// Width of one pill half: its own label, measured - not guessed - plus icon, gaps and padding,
+/// so a translated label never overflows its half.
+fn pill_half_width(ui: &egui::Ui, emoji: &str, label: &str) -> f32 {
+    let fonts = ui.fonts(|f| f.clone());
+    let label_width = fonts
+        .layout_no_wrap(label.to_owned(), egui::FontId::proportional(11.0), egui::Color32::WHITE)
+        .size()
+        .x;
+    let _ = emoji; // the emoji box is a fixed 14px square; measured labels are what vary
+    8.0 + 14.0 + 4.0 + label_width + 8.0
+}
+
+/// Paints the mode toast top-centre, over the video. Alpha comes from `toast_state`, so the
+/// toast fades out over its last half second rather than blinking off.
+fn paint_mode_toast(ctx: &egui::Context, i18n: &I18n, now: f64) {
+    let Some((profile, alpha)) = toast_state(now) else {
+        return;
+    };
+    let (title_key, hint_key) = match profile {
+        ControlProfile::Game => ("stream-mode-toast-game", "stream-mode-toast-game-hint"),
+        ControlProfile::Desktop => ("stream-mode-toast-pc", "stream-mode-toast-pc-hint"),
+    };
+    egui::Area::new(egui::Id::new("stream_mode_toast"))
+        .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 34.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(egui::Color32::from_rgba_unmultiplied(0x0e, 0x0e, 0x0e, alpha))
+                .corner_radius(8.0)
+                .inner_margin(egui::Margin::symmetric(14, 8))
+                .stroke(egui::Stroke::new(
+                    1.0_f32,
+                    ACCENT.gamma_multiply(alpha as f32 / 255.0),
+                ))
+                .show(ui, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            egui::RichText::new(i18n.text(title_key).as_ref())
+                                .size(14.0)
+                                .strong()
+                                .color(egui::Color32::WHITE.gamma_multiply(alpha as f32 / 255.0)),
+                        );
+                        ui.label(
+                            egui::RichText::new(i18n.text(hint_key).as_ref())
+                                .size(11.0)
+                                .color(egui::Color32::from_rgba_unmultiplied(
+                                    0xa0, 0xa4, 0xac, alpha,
+                                )),
+                        );
+                    });
+                });
+        });
+    // Repaint until the toast is gone, or the fade freezes mid-opacity.
+    ctx.request_repaint();
 }
 
 /// Paints the overlay from `opennow_core::input::layout::ZONES` - the same table the hit-test
@@ -4179,6 +4368,13 @@ fn streaming_screen(
                         });
                 });
         }
+
+        // The JUEGO|PC pill: mode is a one-tap question, even with the toolbar collapsed.
+        if let Some(cmd) = mode_pill(ctx, i18n) && command.is_none() {
+            command = Some(cmd);
+        }
+        let toast_now = ctx.input(|input| input.time);
+        paint_mode_toast(ctx, i18n, toast_now);
 
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
             ui.horizontal(|ui| {

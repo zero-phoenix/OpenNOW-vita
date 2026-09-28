@@ -512,6 +512,10 @@ pub async fn run(mut app: App) -> Result<()> {
             app.flash_manual = false;
             crate::app::ui::flash_control_manual(start_time.elapsed().as_secs_f64());
         }
+        if let Some(profile) = app.toast_profile {
+            app.toast_profile = None;
+            crate::app::ui::flash_profile_toast(start_time.elapsed().as_secs_f64(), profile);
+        }
 
         let build_ui_started_at = Instant::now();
         let mut ui_commands = Vec::new();

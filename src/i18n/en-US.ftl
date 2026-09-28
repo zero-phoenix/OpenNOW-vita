@@ -367,3 +367,10 @@ settings-overlay-autofade-heading = Dim the strip when idle
 settings-overlay-autofade-desc = In the game profile, the key strip fades to 35 % after six seconds without a touch and comes straight back when you touch the screen. Always visible, but not competing with the picture.
 settings-control-profile-game = Game
 settings-control-profile-desktop = Desktop
+# JUEGO|PC mode pill and profile-change toast
+stream-mode-pill-game = GAME
+stream-mode-pill-pc = PC
+stream-mode-toast-game = GAME MODE
+stream-mode-toast-game-hint = Every button reaches the game · key strip at the top
+stream-mode-toast-pc = PC MODE
+stream-mode-toast-pc-hint = Sticks = mouse · on-screen keyboard from the toolbar
