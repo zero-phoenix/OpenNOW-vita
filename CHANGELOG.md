@@ -5,7 +5,13 @@ All notable changes to OpenNOW Vita are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] → v0.7.0-rc.1
+## [0.7.0] - 2026-09-28
+
+### Plan de medición
+
+- `docs/perf-v0.7.md`: protocolo antes/después (v0.6.1 vs v0.7.0 en Vita real),
+  criterios por métrica y celdas PENDING hasta medir (regla Halyard: un número
+  sin medición no se publica como tal).
 
 ### Added (fases 1–3 de v0.7, rama feat/v0.7-ui-foundations)
 
@@ -39,6 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nota: `cargo test` sin target explícito usa el target Vita del workspace y
   falla sin el std cruzado; el testigo correcto es el target del host.
 - VPK construido en el contenedor de CI desde este árbol (tests + bin).
+
+- **F5 split de ui.rs** (5118→~1000 líneas): `stream_ui.rs` / `catalog_ui.rs` /
+  `settings_ui.rs` con re-exports de paths antiguos; `FocusList` (core, 8 tests)
+  en el selector de servidor — el foco ahora **envuelve** en los extremos
+  (cambio deliberado, antes clampeaba).
+- **F6 presupuesto de frame dinámico**: menús idle pintan a ~30 fps
+  (`IDLE_FRAME_TIME` 33 ms) cuando no hay input ni animación; cualquier evento
+  despierta a 16.7 ms. El stream nunca idlea.
+- Limpieza del fallout propio: eliminados `StreamIcon::Stop` y
+  `AppCommand::ClosePauseMenu` (nunca construidos; el cierre del menú de pausa
+  va por `InputCommand::Back` y por fin de sesión).
 
 ## [0.6.1] - 2026-09-20
 
