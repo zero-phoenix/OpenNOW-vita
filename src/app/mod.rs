@@ -1,7 +1,10 @@
+pub mod catalog_ui;
 pub mod fonts;
 pub mod hud;
 pub mod pause_menu;
 pub mod settings_menu;
+pub mod settings_ui;
+pub mod stream_ui;
 pub mod theme;
 pub mod ui;
 
@@ -509,7 +512,9 @@ pub struct App {
     pub(crate) settings_expanded: Option<usize>,
     pub(crate) settings_option_focus: usize,
     pub(crate) server_picker_open: bool,
-    pub(crate) server_picker_focus: usize,
+    /// Server-picker row focus. `FocusList` (v0.7 F5): the wrap/clamp arithmetic that used to
+    /// sit inline in the input handler, tested once in core instead of per screen.
+    pub(crate) server_picker_focus: opennow_core::focus::FocusList,
     pub(crate) queue_stats: crate::gfn::queue_stats::QueueMap,
     queue_job: Option<PollJob<crate::gfn::queue_stats::QueueMap>>,
     regions_measured_for_picker: bool,
@@ -645,7 +650,7 @@ impl App {
             settings_expanded: None,
             settings_option_focus: 0,
             server_picker_open: false,
-            server_picker_focus: 0,
+            server_picker_focus: opennow_core::focus::FocusList::new(0),
             queue_stats: Default::default(),
             queue_job: None,
             regions_measured_for_picker: false,
@@ -782,7 +787,7 @@ impl App {
                 current_state
             }
             AppCommand::FocusServerPicker(row) => {
-                self.server_picker_focus = row;
+                self.server_picker_focus.set_index(row);
                 current_state
             }
             AppCommand::LaunchOnServer(zone_base_url) => {
@@ -1548,14 +1553,15 @@ impl App {
         self.server_picker_open = true;
         self.regions_measured_for_picker = false;
         let pinned = crate::gfn::stream_prefs::region();
-        self.server_picker_focus = if pinned.is_empty() {
+        self.server_picker_focus = opennow_core::focus::FocusList::new(1 + self.regions.len());
+        self.server_picker_focus.set_index(if pinned.is_empty() {
             0
         } else {
             self.regions
                 .iter()
                 .position(|region| region.url == pinned)
                 .map_or(0, |index| index + 1)
-        };
+        });
         if self.regions_job.is_none() && self.regions.is_empty() {
             self.start_region_fetch();
         }
@@ -1710,18 +1716,17 @@ impl App {
         bearer_token: Option<String>,
         http_client: Client,
     ) -> AppState {
-        let row_count = 1 + self.regions.len();
         match input {
             InputCommand::MoveUp => {
-                self.server_picker_focus = self.server_picker_focus.saturating_sub(1);
+                self.server_picker_focus.prev();
                 current_state
             }
             InputCommand::MoveDown => {
-                self.server_picker_focus = (self.server_picker_focus + 1).min(row_count - 1);
+                self.server_picker_focus.next();
                 current_state
             }
             InputCommand::Confirm => {
-                let zone = self.server_picker_zone(self.server_picker_focus);
+                let zone = self.server_picker_zone(self.server_picker_focus.index());
                 self.server_picker_open = false;
                 self.start_launch(current_state, zone, bearer_token, http_client)
             }

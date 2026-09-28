@@ -8,7 +8,7 @@
 //! behind the menu's transparent backdrop); Left/Right step the row under the cursor.
 
 use crate::app::theme::{ACCENT, BG_PANEL, BG_RAISED, BORDER, TEXT_DIM};
-use crate::app::ui::reserve_stream_touch;
+use crate::app::stream_ui::reserve_stream_touch;
 use crate::gfn::stream_prefs as prefs;
 use crate::i18n::I18n;
 use crate::input::AppCommand;

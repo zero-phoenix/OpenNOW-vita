@@ -23,6 +23,9 @@ const DIRECTION_REPEAT_INITIAL_DELAY: Duration = Duration::from_millis(200);
 const DIRECTION_REPEAT_INTERVAL: Duration = Duration::from_millis(70);
 
 pub(crate) const TARGET_FRAME_TIME: Duration = Duration::from_millis(16);
+/// Budget for a menu screen with nothing animating (F6): 30 fps is half the CPU of 60 for
+/// a picture that only changes when the player touches it.
+const IDLE_FRAME_TIME: Duration = Duration::from_millis(33);
 
 /// Minimum interval between pad samples. This remains render-loop bounded: it avoids duplicate
 /// reads on fast frames, but it is not a dedicated 120 Hz input thread and must not be described
@@ -488,6 +491,9 @@ pub async fn run(mut app: App) -> Result<()> {
             text_input_active = false;
         }
 
+        // F6's idle check runs after `egui_events` has moved into the input below; the
+        // flag is captured here, while the answer is still owned.
+        let had_egui_events = !egui_events.is_empty();
         let raw_input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
@@ -564,7 +570,24 @@ pub async fn run(mut app: App) -> Result<()> {
             tessellate_elapsed,
             paint_stats,
         );
-        let frame_deadline = loop_started_at + TARGET_FRAME_TIME;
+        // F6: a menu with nothing new to say between inputs does not need 60 redraws a
+        // second - halving its frame rate halves the CPU the UI burns while waiting for
+        // something to happen, which on the Vita is battery and heat, not just numbers.
+        // Every state whose content changes unprompted (video, splash, spinners, QR polls)
+        // keeps the full budget; input during a slow frame simply wakes the loop early.
+        let idle_menu = !had_egui_events
+            && !matches!(app.state, AppState::Streaming { .. })
+            && !matches!(
+                app.state,
+                AppState::LoadingCatalog { .. }
+                    | AppState::CreatingSession { .. }
+                    | AppState::Signaling { .. }
+                    | AppState::StartingDeviceLogin(_)
+                    | AppState::WaitingForDeviceAuthorization { .. }
+            )
+            && start_time.elapsed().as_secs_f64() >= crate::app::ui::SPLASH_TOTAL;
+        let frame_budget = if idle_menu { IDLE_FRAME_TIME } else { TARGET_FRAME_TIME };
+        let frame_deadline = loop_started_at + frame_budget;
         let remaining = frame_deadline.saturating_duration_since(Instant::now());
         if !remaining.is_zero() {
             tokio::time::sleep(remaining).await;

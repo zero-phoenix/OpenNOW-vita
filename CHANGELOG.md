@@ -17,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wrap y clamp (8 tests), base de toda la UI nueva.
 - **Pastilla de modo JUEGO|PC** visible en la interfaz.
 - i18n actualizado (es/en/fr/ru).
+- **F5 — desglose del monolito**: `ui.rs` pasa de 5.118 a ~1.000 líneas
+  repartiendo las pantallas en `stream_ui.rs` (iconos, overlay PC, teclado,
+  pantalla de stream), `catalog_ui.rs` (catálogo, selector de servidor,
+  detalle y familia de lanzamiento) y `settings_ui.rs` (modal de ajustes).
+  Código movido, no reescrito; los paths antiguos (`ui::selected_game`,
+  `ui::stream_ui_rects`, ...) se re-exportan para no tocar shell/main.
+- **F5 — `FocusList` adoptado** por el selector de servidor: la aritmética
+  de foco vive en core (testeada) y ya no se copia por pantalla. Cambio
+  deliberado y documentado: el foco ahora *envuelve* en los extremos en vez
+  de clavarse (arriba desde la primera fila baja a la última).
+- **F6 — presupuesto de frame dinámico**: las pantallas de menú sin animación
+  (catálogo, ajustes, login, error) bajan a 30 fps cuando no hay input ni
+  trabajo pendiente; el stream, el splash y los spinners conservan 60. En
+  Vita eso es mitad de CPU quemada esperando que pase algo.
 
 ### Verified
 
@@ -24,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Windows con `--target x86_64-pc-windows-msvc` y en CI (linux-gnu).
 - Nota: `cargo test` sin target explícito usa el target Vita del workspace y
   falla sin el std cruzado; el testigo correcto es el target del host.
+- VPK construido en el contenedor de CI desde este árbol (tests + bin).
 
 ## [0.6.1] - 2026-09-20
 
