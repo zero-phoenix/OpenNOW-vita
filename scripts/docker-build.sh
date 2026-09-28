@@ -17,7 +17,8 @@ cd "$(dirname "$0")/.."
 # Stamp the source state before the CRLF repair below. The repair changes the bind-mounted
 # Makefile briefly on Windows even though it has no semantic source change.
 OPENNOW_BUILD_REV="$(git rev-parse --short=12 HEAD 2>/dev/null || printf unknown)"
-if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+# Docker sees the Windows checkout's CRLF files as dirty unless Git normalizes them.
+if [ -n "$(git -c core.autocrlf=input status --porcelain 2>/dev/null)" ]; then
     OPENNOW_BUILD_REV="${OPENNOW_BUILD_REV}-dirty"
 fi
 export OPENNOW_BUILD_REV
