@@ -99,6 +99,26 @@ pub enum AppCommand {
     SetControlProfile(crate::gfn::stream_prefs::ControlProfile),
     /// Swaps to the other control profile, from the on-screen switch.
     ToggleControlProfile,
+    /// Selects one control profile explicitly, from the JUEGO|PC pill's tapped half. A no-op
+    /// when that profile is already active, so resting a thumb on the pill cannot flash it.
+    SelectControlProfile(crate::gfn::stream_prefs::ControlProfile),
+    /// Opens the in-stream pause menu (the paginated overlay over the live stream).
+    OpenPauseMenu,
+    /// Closes the pause menu.
+    ClosePauseMenu,
+    /// Touch activation of pause-menu row `index`; the handler focuses it, activates it, and
+    /// applies whatever that row's id maps to.
+    MenuActivateAt(usize),
+    /// Steps the bitrate ceiling one slot in `delta`'s direction (0 kbps = auto).
+    MenuBitrateStep(i32),
+    /// Steps the performance HUD's paint opacity.
+    MenuOpacityStep(i32),
+    /// Steps the performance HUD's stats sampling interval.
+    MenuRefreshStep(i32),
+    /// Shows or hides the HUD's FPS sparkline.
+    ToggleHudFpsChart,
+    /// Shows or hides the HUD's bitrate sparkline.
+    ToggleHudBitrateChart,
     /// Shows or hides everything on the overlay except the eye.
     ToggleOverlayReveal,
     /// Opens the on-screen keyboard's Windows-shortcut page.

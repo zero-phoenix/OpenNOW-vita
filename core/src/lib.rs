@@ -7,5 +7,8 @@
 //! wire - lives here instead, where `cargo test -p opennow-core` runs on any PC in seconds.
 
 pub mod config;
+pub mod focus;
+pub mod hud;
 pub mod input;
+pub mod menu;
 pub mod protocol;

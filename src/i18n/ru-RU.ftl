@@ -367,3 +367,44 @@ settings-overlay-autofade-heading = Приглушать полосу без к�
 settings-overlay-autofade-desc = В игровом профиле полоса клавиш тускнеет до 35 % через шесть секунд без касания и сразу возвращается при касании экрана. Всегда видна, но не мешает картинке.
 settings-control-profile-game = Игра
 settings-control-profile-desktop = Рабочий стол
+# Пилюля режима ИГРА|ПК и тост смены профиля
+stream-mode-pill-game = ИГРА
+stream-mode-pill-pc = ПК
+stream-mode-toast-game = РЕЖИМ ИГРЫ
+stream-mode-toast-game-hint = Все кнопки идут в игру · полоса клавиш сверху
+stream-mode-toast-pc = РЕЖИМ ПК
+stream-mode-toast-pc-hint = Стики = мышь · экранная клавиатура из панели
+
+# Меню паузы (в потоке)
+menu-title = МЕНЮ
+menu-continue = Продолжить
+menu-video = Видео
+menu-panel = Панель
+menu-controls = Управление
+menu-quit = Выход
+menu-bitrate = Лимит битрейта
+menu-stats = Панель производительности
+menu-opacity = Прозрачность панели
+menu-refresh = Обновление панели
+menu-fps-chart = График FPS
+menu-bitrate-chart = График битрейта
+menu-timer = Таймер сессии
+menu-profile = Профиль управления
+menu-keyboard = Экранная клавиатура
+menu-trackpad = Сенсорный трекпад
+menu-overlay = Оверлей ПК
+menu-autofade = Автозатухание
+menu-triggers = Настройки L2/R2 и L3/R3
+menu-footer = X принять · O назад · ◀ ▶ настройка
+
+# HUD производительности
+hud-title = ПРОИЗВОДИТЕЛЬНОСТЬ
+hud-section-video = ВИДЕО
+hud-section-net = СЕТЬ
+hud-fps = FPS
+hud-bitrate = Битрейт
+hud-decode = Декод.
+hud-ping = Пинг
+hud-jitter = Джиттер
+hud-loss = Потери
+hud-drop = Дропы

@@ -367,3 +367,44 @@ settings-overlay-autofade-heading = Atenuar la tira al no usarla
 settings-overlay-autofade-desc = En el modo Juego, la tira de teclas baja al 35 % tras seis segundos sin tocarla y vuelve al instante al tocar la pantalla. Siempre visible, pero sin competir con la imagen.
 settings-control-profile-game = Juego
 settings-control-profile-desktop = Escritorio
+# Píldora de modo JUEGO|PC y toast de cambio de perfil
+stream-mode-pill-game = JUEGO
+stream-mode-pill-pc = PC
+stream-mode-toast-game = MODO JUEGO
+stream-mode-toast-game-hint = Todos los botones van al juego · tira de teclas arriba
+stream-mode-toast-pc = MODO PC
+stream-mode-toast-pc-hint = Sticks = ratón · teclado en pantalla desde la barra
+
+# Menú de pausa (en el stream)
+menu-title = MENÚ
+menu-continue = Continuar
+menu-video = Vídeo
+menu-panel = Panel
+menu-controls = Controles
+menu-quit = Salir
+menu-bitrate = Límite de bitrate
+menu-stats = Panel de rendimiento
+menu-opacity = Opacidad del panel
+menu-refresh = Refresco del panel
+menu-fps-chart = Gráfica FPS
+menu-bitrate-chart = Gráfica de bitrate
+menu-timer = Temporizador de sesión
+menu-profile = Perfil de control
+menu-keyboard = Teclado en pantalla
+menu-trackpad = Trackpad táctil
+menu-overlay = Overlay PC
+menu-autofade = Atenuación automática
+menu-triggers = Ajustes L2/R2 y L3/R3
+menu-footer = X aceptar · O atrás · ◀ ▶ ajustar
+
+# HUD de rendimiento
+hud-title = RENDIMIENTO
+hud-section-video = VÍDEO
+hud-section-net = RED
+hud-fps = FPS
+hud-bitrate = Bitrate
+hud-decode = Decodifica
+hud-ping = Ping
+hud-jitter = Jitter
+hud-loss = Pérdida
+hud-drop = Drops
