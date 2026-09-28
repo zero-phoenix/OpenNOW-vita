@@ -8,6 +8,7 @@ __pycache__/
 # broken images on GitHub.
 /docs/*
 !/docs/screenshots/
+!docs/perf-v0.7.md
 /.claude
 /.agents
 skills-lock.json
