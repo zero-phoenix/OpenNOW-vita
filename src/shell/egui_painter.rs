@@ -26,6 +26,7 @@ pub struct SdlEguiPainter {
     vertices: Vec<sdl2::render::Vertex>,
     indices: Vec<i32>,
     scratch: Vec<u8>,
+    font_atlas_size: [u32; 2],
 }
 
 struct SdlEguiTexture {
@@ -48,6 +49,18 @@ pub struct PaintStats {
     pub draw_calls: u32,
     pub textures_uploaded: u32,
     pub vertices_drawn: u32,
+    pub primitives: u32,
+    pub meshes: u32,
+    pub callbacks: u32,
+    pub font_meshes: u32,
+    pub font_vertices: u32,
+    pub source_vertices: u32,
+    pub clipped: u32,
+    pub empty_meshes: u32,
+    pub missing_textures: u32,
+    pub missing_font: u32,
+    pub pending_textures: u32,
+    pub font_atlas_size: [u32; 2],
 }
 
 impl SdlEguiPainter {
@@ -66,24 +79,52 @@ impl SdlEguiPainter {
         let geometry_started_at = std::time::Instant::now();
         let mut draw_calls = 0u32;
         let mut vertices_drawn = 0u32;
+        let mut meshes = 0u32;
+        let mut callbacks = 0u32;
+        let mut font_meshes = 0u32;
+        let mut font_vertices = 0u32;
+        let mut source_vertices = 0u32;
+        let mut clipped = 0u32;
+        let mut empty_meshes = 0u32;
+        let mut missing_textures = 0u32;
+        let mut missing_font = 0u32;
         let mut current_clip: Option<sdl2::rect::Rect> = None;
         let mut current_texture_id: Option<egui::TextureId> = None;
         for clipped_primitive in primitives {
+            match &clipped_primitive.primitive {
+                egui::epaint::Primitive::Mesh(mesh) => {
+                    meshes += 1;
+                    source_vertices += mesh.vertices.len() as u32;
+                    if is_font_texture(mesh.texture_id) {
+                        font_meshes += 1;
+                        font_vertices += mesh.vertices.len() as u32;
+                    }
+                }
+                egui::epaint::Primitive::Callback(_) => callbacks += 1,
+            }
             let Some(clip_rect) =
                 Self::sdl_clip_rect(clipped_primitive.clip_rect, screen_size, pixels_per_point)
             else {
+                clipped += 1;
                 continue;
             };
             let egui::epaint::Primitive::Mesh(mesh) = &clipped_primitive.primitive else {
                 continue;
             };
             if mesh.indices.is_empty() || mesh.vertices.is_empty() {
+                empty_meshes += 1;
                 continue;
             }
             let uv_scale = match self.textures.get(&mesh.texture_id) {
                 Some(t) => t.uv_scale,
-                None if mesh.texture_id != egui::TextureId::default() => continue,
-                None => egui::vec2(1.0, 1.0),
+                None if !is_font_texture(mesh.texture_id) => {
+                    missing_textures += 1;
+                    continue;
+                }
+                None => {
+                    missing_font += 1;
+                    egui::vec2(1.0, 1.0)
+                }
             };
             let same_batch =
                 current_clip == Some(clip_rect) && current_texture_id == Some(mesh.texture_id);
@@ -118,6 +159,9 @@ impl SdlEguiPainter {
         canvas.set_clip_rect(None);
         for texture_id in &textures_delta.free {
             self.pending.remove(texture_id);
+            if is_font_texture(*texture_id) {
+                self.font_atlas_size = [0, 0];
+            }
             let Some(freed) = self.textures.remove(texture_id) else {
                 continue;
             };
@@ -137,6 +181,18 @@ impl SdlEguiPainter {
             draw_calls,
             textures_uploaded,
             vertices_drawn,
+            primitives: primitives.len() as u32,
+            meshes,
+            callbacks,
+            font_meshes,
+            font_vertices,
+            source_vertices,
+            clipped,
+            empty_meshes,
+            missing_textures,
+            missing_font,
+            pending_textures: self.pending.len() as u32,
+            font_atlas_size: self.font_atlas_size,
         })
     }
 
@@ -489,6 +545,9 @@ impl SdlEguiPainter {
                 },
             ) {
                 unsafe { previous.texture.destroy() };
+            }
+            if is_font_texture(texture_id) {
+                self.font_atlas_size = [width as u32, height as u32];
             }
             return;
         }

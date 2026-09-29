@@ -82,6 +82,18 @@ struct FrameStats {
     draw_calls: u64,
     textures_uploaded: u64,
     vertices_drawn: u64,
+    primitives: u64,
+    meshes: u64,
+    callbacks: u64,
+    font_meshes: u64,
+    font_vertices: u64,
+    source_vertices: u64,
+    clipped: u64,
+    empty_meshes: u64,
+    missing_textures: u64,
+    missing_font: u64,
+    pending_textures: u32,
+    font_atlas_size: [u32; 2],
     iterations: u32,
     last_painted_at: Option<Instant>,
     max_gap: Duration,
@@ -116,6 +128,18 @@ impl FrameStats {
         self.draw_calls += paint.draw_calls as u64;
         self.textures_uploaded += paint.textures_uploaded as u64;
         self.vertices_drawn += paint.vertices_drawn as u64;
+        self.primitives += paint.primitives as u64;
+        self.meshes += paint.meshes as u64;
+        self.callbacks += paint.callbacks as u64;
+        self.font_meshes += paint.font_meshes as u64;
+        self.font_vertices += paint.font_vertices as u64;
+        self.source_vertices += paint.source_vertices as u64;
+        self.clipped += paint.clipped as u64;
+        self.empty_meshes += paint.empty_meshes as u64;
+        self.missing_textures += paint.missing_textures as u64;
+        self.missing_font += paint.missing_font as u64;
+        self.pending_textures = paint.pending_textures;
+        self.font_atlas_size = paint.font_atlas_size;
         let paint_total = texture_apply + geometry + present;
         let total = tick + build_ui + tessellate + paint_total;
         if let Some(previous) = self.last_painted_at {
@@ -198,6 +222,25 @@ impl FrameStats {
                 self.draw_calls as f64 / frames,
                 self.vertices_drawn as f64 / frames,
                 self.present.as_secs_f64() * 1000.0 / frames,
+            ));
+            self.pending_log.push(format!(
+                "  egui geometry: primitives={} meshes={} callbacks={} source_verts={} \
+                 atlas_meshes={} atlas_verts={} clipped={} empty={} missing_texture={} \
+                 missing_font={} drawn_verts={} font_atlas={}x{} pending_textures={}",
+                self.primitives,
+                self.meshes,
+                self.callbacks,
+                self.source_vertices,
+                self.font_meshes,
+                self.font_vertices,
+                self.clipped,
+                self.empty_meshes,
+                self.missing_textures,
+                self.missing_font,
+                self.vertices_drawn,
+                self.font_atlas_size[0],
+                self.font_atlas_size[1],
+                self.pending_textures,
             ));
         }
         crate::logger::write_frame_stats(&self.pending_log.join("\n"));
