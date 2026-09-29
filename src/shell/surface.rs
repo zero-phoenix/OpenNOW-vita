@@ -10,8 +10,10 @@ use anyhow::{Context, Result};
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, Texture};
 use sdl2::video::Window;
+use std::io::{BufWriter, Write};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 #[derive(Default, Clone, Copy)]
 pub struct FramePaintStats {
@@ -21,10 +23,24 @@ pub struct FramePaintStats {
     pub draw_calls: u32,
     pub textures_uploaded: u32,
     pub vertices_drawn: u32,
+    pub primitives: u32,
+    pub meshes: u32,
+    pub callbacks: u32,
+    pub font_meshes: u32,
+    pub font_vertices: u32,
+    pub source_vertices: u32,
+    pub clipped: u32,
+    pub empty_meshes: u32,
+    pub missing_textures: u32,
+    pub missing_font: u32,
+    pub pending_textures: u32,
+    pub font_atlas_size: [u32; 2],
 }
 
 pub const WIDTH: u32 = 960;
 pub const HEIGHT: u32 = 544;
+const CAPTURE_REQUEST: &str = "ux0:data/opennow-vita/capture_request";
+const CAPTURE_OUTPUT: &str = "ux0:data/opennow-vita/capture_latest.ppm";
 
 /// SDL's name for the Vita's native GXM renderer, as `SDL_GetRenderDriverInfo` reports it.
 const GXM_RENDER_DRIVER: &str = "VITA gxm";
@@ -41,6 +57,7 @@ pub struct VitaSurface {
     video_height: u32,
     last_frame_id: u64,
     egui_painter: SdlEguiPainter,
+    last_capture_poll: Instant,
     /// Set once the decode thread reports Bgr565 is producing blank frames (Vita3K's HLE AVCDEC
     /// gap - see `streaming::video::worker::BLANK_FRAME_FALLBACK_STREAK`).
     force_iyuv: bool,
@@ -142,6 +159,7 @@ impl VitaSurface {
             video_height: 0,
             last_frame_id: 0,
             egui_painter: SdlEguiPainter::default(),
+            last_capture_poll: Instant::now(),
             force_iyuv: false,
         })
     }
@@ -337,6 +355,18 @@ impl VitaSurface {
             draw_calls,
             textures_uploaded,
             vertices_drawn,
+            primitives,
+            meshes,
+            callbacks,
+            font_meshes,
+            font_vertices,
+            source_vertices,
+            clipped,
+            empty_meshes,
+            missing_textures,
+            missing_font,
+            pending_textures,
+            font_atlas_size,
         } = self.egui_painter.paint(
             &mut self.canvas,
             [WIDTH, HEIGHT],
@@ -344,6 +374,18 @@ impl VitaSurface {
             primitives,
             textures_delta,
         )?;
+        if self.last_capture_poll.elapsed() >= Duration::from_secs(1) {
+            self.last_capture_poll = Instant::now();
+            if std::path::Path::new(CAPTURE_REQUEST).exists() {
+                match std::fs::remove_file(CAPTURE_REQUEST) {
+                    Ok(()) => match self.capture_ppm() {
+                        Ok(()) => crate::diag!("screen capture saved to {CAPTURE_OUTPUT}"),
+                        Err(err) => crate::diag!("screen capture failed: {err:#}"),
+                    },
+                    Err(err) => crate::diag!("screen capture request could not be consumed: {err}"),
+                }
+            }
+        }
         let present_started_at = std::time::Instant::now();
         self.canvas.present();
         let present_secs = present_started_at.elapsed().as_secs_f64();
@@ -354,7 +396,44 @@ impl VitaSurface {
             draw_calls,
             textures_uploaded,
             vertices_drawn,
+            primitives,
+            meshes,
+            callbacks,
+            font_meshes,
+            font_vertices,
+            source_vertices,
+            clipped,
+            empty_meshes,
+            missing_textures,
+            missing_font,
+            pending_textures,
+            font_atlas_size,
         })
+    }
+
+    fn capture_ppm(&mut self) -> Result<()> {
+        let pixels = self
+            .canvas
+            .read_pixels(None, PixelFormatEnum::RGBA32)
+            .map_err(anyhow::Error::msg)
+            .context("SDL_RenderReadPixels")?;
+        let row_bytes = WIDTH as usize * 4;
+        anyhow::ensure!(
+            pixels.len() == row_bytes * HEIGHT as usize,
+            "unexpected screenshot buffer size {}",
+            pixels.len()
+        );
+        let file = std::fs::File::create(CAPTURE_OUTPUT).context("create capture file")?;
+        let mut output = BufWriter::new(file);
+        write!(output, "P6\n{WIDTH} {HEIGHT}\n255\n").context("write capture header")?;
+        let mut rgb_row = vec![0u8; WIDTH as usize * 3];
+        for rgba_row in pixels.chunks_exact(row_bytes) {
+            for (rgba, rgb) in rgba_row.chunks_exact(4).zip(rgb_row.chunks_exact_mut(3)) {
+                rgb.copy_from_slice(&rgba[..3]);
+            }
+            output.write_all(&rgb_row).context("write capture pixels")?;
+        }
+        output.flush().context("flush capture file")
     }
 
     fn fit_rect(src_w: u32, src_h: u32, dst_w: u32, dst_h: u32) -> sdl2::rect::Rect {
