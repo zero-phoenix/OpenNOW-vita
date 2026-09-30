@@ -7,12 +7,14 @@ use std::collections::{HashMap, HashSet};
 pub const MAX_ICON_SIDE: u32 = 64;
 
 const RETRIES_PER_FRAME: usize = 2;
-const MAX_UPLOAD_ATTEMPTS: u32 = 8;
 const BACKOFF_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
 const NEW_TEXTURES_PER_FRAME: usize = 1;
 const ICON_FREE_POOL_CAP: usize = 16;
 const ICON_FREE_POOL_WARM_LOW: usize = 6;
 const MAX_PENDING_UPLOADS: usize = 12;
+/// Failure logs are throttled to 1-in-N per painter so a stuck texture cannot
+/// flood the log while it retries forever.
+const UPLOAD_FAILURE_LOG_EVERY: u32 = 16;
 
 fn is_font_texture(id: egui::TextureId) -> bool {
     id == egui::TextureId::default()
@@ -27,6 +29,7 @@ pub struct SdlEguiPainter {
     indices: Vec<i32>,
     scratch: Vec<u8>,
     font_atlas_size: [u32; 2],
+    failure_logs: u32,
 }
 
 struct SdlEguiTexture {
@@ -202,6 +205,15 @@ impl SdlEguiPainter {
 
     fn is_icon_class_size(size: [usize; 2]) -> bool {
         size[0] as u32 <= MAX_ICON_SIDE && size[1] as u32 <= MAX_ICON_SIDE
+    }
+
+    /// Logs the first failure and then 1-in-N: the texture retries forever,
+    /// so an unsatisfied error would flood the log every backoff interval.
+    fn log_upload_failure(&mut self, message: String) {
+        self.failure_logs += 1;
+        if self.failure_logs == 1 || self.failure_logs % UPLOAD_FAILURE_LOG_EVERY == 0 {
+            crate::diag!("{message}");
+        }
     }
 
     fn flush_batch(
@@ -413,9 +425,9 @@ impl SdlEguiPainter {
                 self.finish_icon_upload(texture, texture_id, size, pixels);
             }
             Err(err) => {
-                crate::diag!(
+                self.log_upload_failure(format!(
                     "no room for a {MAX_ICON_SIDE}x{MAX_ICON_SIDE} icon texture, will retry: {err}"
-                );
+                ));
                 self.defer_or_give_up(texture_id, size, None, pixels, 0);
             }
         }
@@ -435,7 +447,9 @@ impl SdlEguiPainter {
             pixels,
             width * 4,
         ) {
-            crate::diag!("couldn't patch a pooled icon texture, will retry: {err}");
+            self.log_upload_failure(format!(
+                "couldn't patch a pooled icon texture, will retry: {err}"
+            ));
             if self.icon_free_pool.len() < ICON_FREE_POOL_CAP {
                 self.icon_free_pool.push(texture);
             } else {
@@ -480,23 +494,19 @@ impl SdlEguiPainter {
         pixels: &[u8],
         attempts: u32,
     ) {
-        let attempts = attempts + 1;
-        if attempts >= MAX_UPLOAD_ATTEMPTS {
-            crate::diag!(
-                "giving up on a {}x{} texture after {attempts} attempts",
-                size[0],
-                size[1]
-            );
-            self.pending.remove(&texture_id);
-            return;
-        }
+        // egui sends each texture delta once, so giving up here leaves the
+        // texture missing for the whole session. On hardware that turned into
+        // a catalog without text: the font atlas upload failed during the
+        // first seconds and after 8 attempts (~2s) it was never retried
+        // again. Retry forever instead - freed textures are dropped from
+        // pending above and make_pending_room bounds the queue.
         self.enqueue_pending(
             texture_id,
             PendingUpload {
                 size,
                 pos,
                 pixels: pixels.to_vec(),
-                attempts,
+                attempts: attempts + 1,
                 next_retry_at: std::time::Instant::now() + BACKOFF_RETRY_INTERVAL,
             },
         );
@@ -521,7 +531,10 @@ impl SdlEguiPainter {
             let mut texture = match texture {
                 Ok(texture) => texture,
                 Err(err) => {
-                    crate::diag!("no room for a {width}x{height} texture, will retry: {err}");
+                    self.log_upload_failure(format!(
+                        "no room for a {width}x{height} texture, will retry (attempt {n}): {err}",
+                        n = attempts + 1,
+                    ));
                     self.defer_or_give_up(texture_id, size, pos, pixels, attempts);
                     return;
                 }
@@ -532,7 +545,10 @@ impl SdlEguiPainter {
                 pixels,
                 width * 4,
             ) {
-                crate::diag!("couldn't upload a texture, will retry: {err}");
+                self.log_upload_failure(format!(
+                    "couldn't upload a {width}x{height} texture, will retry (attempt {n}): {err}",
+                    n = attempts + 1,
+                ));
                 unsafe { texture.destroy() };
                 self.defer_or_give_up(texture_id, size, pos, pixels, attempts);
                 return;
