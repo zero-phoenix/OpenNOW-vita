@@ -41,6 +41,27 @@ pub const WIDTH: u32 = 960;
 pub const HEIGHT: u32 = 544;
 const CAPTURE_REQUEST: &str = "ux0:data/opennow-vita/capture_request";
 const CAPTURE_OUTPUT: &str = "ux0:data/opennow-vita/capture_latest.ppm";
+// When this file exists the app hands each finished frame to the display
+// itself via sceDisplaySetFrameBuf, bypassing SDL's gxm display queue. On
+// hardware the queue stalled (screen stuck on the initial black buffer while
+// the rendered backbuffer was correct - verified by capture_latest.ppm).
+const DIRECT_PRESENT_FLAG: &str = "ux0:data/opennow-vita/direct_present";
+const SCE_DISPLAY_SETBUF_NEXTFRAME: u32 = 1;
+const SCE_DISPLAY_PIXELFORMAT_A8B8G8R8: u32 = 1;
+
+#[repr(C)]
+struct SceDisplayFrameBuf {
+    size: u32,
+    base: *const u8,
+    pitch: u32,
+    pixelformat: u32,
+    width: u32,
+    height: u32,
+}
+
+unsafe extern "C" {
+    fn sceDisplaySetFrameBuf(pFrameBuf: *mut SceDisplayFrameBuf, mode: u32) -> i32;
+}
 
 /// SDL's name for the Vita's native GXM renderer, as `SDL_GetRenderDriverInfo` reports it.
 const GXM_RENDER_DRIVER: &str = "VITA gxm";
@@ -61,6 +82,9 @@ pub struct VitaSurface {
     /// Set once the decode thread reports Bgr565 is producing blank frames (Vita3K's HLE AVCDEC
     /// gap - see `streaming::video::worker::BLANK_FRAME_FALLBACK_STREAK`).
     force_iyuv: bool,
+    direct_present: bool,
+    direct_present_poll: Instant,
+    direct_frame: Vec<u8>,
 }
 
 impl VitaSurface {
@@ -161,6 +185,9 @@ impl VitaSurface {
             egui_painter: SdlEguiPainter::default(),
             last_capture_poll: Instant::now(),
             force_iyuv: false,
+            direct_present: false,
+            direct_present_poll: Instant::now(),
+            direct_frame: Vec::new(),
         })
     }
 
@@ -387,7 +414,49 @@ impl VitaSurface {
             }
         }
         let present_started_at = std::time::Instant::now();
-        self.canvas.present();
+        if self.direct_present_poll.elapsed() >= Duration::from_secs(1) {
+            self.direct_present_poll = Instant::now();
+            let want = std::path::Path::new(DIRECT_PRESENT_FLAG).exists();
+            if want != self.direct_present {
+                self.direct_present = want;
+                crate::diag!(
+                    "direct present {} (bypassing SDL gxm display queue)",
+                    if want { "ON" } else { "off" }
+                );
+            }
+        }
+        if self.direct_present {
+            // Flush the GPU work into the SDL back buffer, read it back (the
+            // same path the PPM capture uses, proven to return the drawn
+            // frame) and hand it to the display directly.
+            self.canvas.present();
+            let pixels = self
+                .canvas
+                .read_pixels(None, PixelFormatEnum::RGBA32)
+                .map_err(anyhow::Error::msg)
+                .context("direct present: SDL_RenderReadPixels")?;
+            let row_bytes = WIDTH as usize * 4;
+            anyhow::ensure!(
+                pixels.len() == row_bytes * HEIGHT as usize,
+                "direct present: unexpected read_pixels size {}",
+                pixels.len()
+            );
+            self.direct_frame = pixels;
+            let mut fb = SceDisplayFrameBuf {
+                size: std::mem::size_of::<SceDisplayFrameBuf>() as u32,
+                base: self.direct_frame.as_ptr(),
+                pitch: WIDTH,
+                pixelformat: SCE_DISPLAY_PIXELFORMAT_A8B8G8R8,
+                width: WIDTH,
+                height: HEIGHT,
+            };
+            let rc = unsafe { sceDisplaySetFrameBuf(&mut fb, SCE_DISPLAY_SETBUF_NEXTFRAME) };
+            if rc < 0 {
+                crate::diag!("sceDisplaySetFrameBuf failed: 0x{rc:08X}");
+            }
+        } else {
+            self.canvas.present();
+        }
         let present_secs = present_started_at.elapsed().as_secs_f64();
         Ok(FramePaintStats {
             texture_apply_secs,

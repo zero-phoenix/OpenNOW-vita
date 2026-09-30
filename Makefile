@@ -8,7 +8,7 @@
 # `vitasdk/vitasdk` image that makes the link step fail with a wall of `undefined reference to
 # std::__throw_length_error` and `sceShaccCgExtEnableExtensions`. They go last so ld resolves them
 # after the libraries that ask for them.
-RUSTFLAGS ?= -C target-feature=-neon -C link-arg=-lSceShaccCgExt -C link-arg=-lSceShaccCg_stub -C link-arg=-lstdc++ -C link-arg=-ltaihen_stub_weak
+RUSTFLAGS ?= -C target-feature=-neon -C link-arg=-lSceShaccCgExt -C link-arg=-lSceShaccCg_stub -C link-arg=-lstdc++ -C link-arg=-ltaihen_stub_weak -C link-arg=-lSceDisplay_stub
 CARGO_VITA ?= cargo +nightly vita
 
 VPK := target/armv7-sony-vita-newlibeabihf/release/opennow-vita.vpk
